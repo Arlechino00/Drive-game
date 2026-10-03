@@ -1,0 +1,57 @@
+param(
+    [string]$GodotPath = 'godot',
+    [switch]$Capture
+)
+
+$ErrorActionPreference = 'Stop'
+$projectPath = Split-Path -Parent $PSScriptRoot
+$validationPath = Join-Path $projectPath '.godot/validation'
+$savedAppData = $env:APPDATA
+$savedLocalAppData = $env:LOCALAPPDATA
+New-Item -ItemType Directory -Force -Path (Join-Path $validationPath 'appdata') | Out-Null
+
+function Invoke-GodotCheck([string]$Name, [string[]]$RunArguments) {
+    $logPath = Join-Path $validationPath ($Name + '.log')
+    & $GodotPath --path $projectPath --log-file $logPath @RunArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed (exit $LASTEXITCODE). See $logPath"
+    }
+    if (Select-String -LiteralPath $logPath -Pattern '^(SCRIPT ERROR:|ERROR:|WARNING:)' -Quiet) {
+        throw "$Name logged an engine/script error or warning. See $logPath"
+    }
+}
+
+try {
+    # Keep validation logs, editor data, and score saves out of the player's profile.
+    $env:APPDATA = Join-Path $validationPath 'appdata'
+    $env:LOCALAPPDATA = Join-Path $validationPath 'localappdata'
+    New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+    Invoke-GodotCheck 'editor' @('--headless', '--editor', '--quit')
+    Invoke-GodotCheck 'smoke' @('--headless', '--script', 'res://tests/smoke.gd')
+    Invoke-GodotCheck 'handling' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/handling.gd')
+    foreach ($subsystem in @('progression', 'hazard_rules', 'settings', 'player_records', 'record_recovery', 'secret_access', 'pursuit', 'secret_world', 'modes', 'traffic', 'encounters', 'world', 'background', 'car_design', 'traffic_design', 'traffic_models', 'apex_race', 'apex_safety', 'apex_race_ui', 'apex_visibility', 'aftermath', 'ui', 'ui_responsive', 'community_ui', 'polish')) {
+        Invoke-GodotCheck $subsystem @('--headless', '--script', "res://tests/$subsystem.gd")
+    }
+    Invoke-GodotCheck 'hazards' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/hazards.gd')
+    Invoke-GodotCheck 'secret-mode' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/secret_mode.gd')
+    Invoke-GodotCheck 'endurance' @('--headless', '--script', 'res://tests/endurance.gd')
+    Invoke-GodotCheck 'continuous' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/continuous.gd')
+    Invoke-GodotCheck 'continuous-infinite' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/continuous.gd', '--', '--infinite-boost')
+    Invoke-GodotCheck 'continuous-secret' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/continuous.gd', '--', '--secret')
+    Invoke-GodotCheck 'quit' @('--headless', '--script', 'res://tests/quit.gd')
+    if ($Capture) {
+        Invoke-GodotCheck 'capture' @('--fixed-fps', '60', '--script', 'res://tests/capture.gd')
+        Invoke-GodotCheck 'ui-capture' @('--fixed-fps', '60', '--script', 'res://tests/ui_capture.gd')
+        Invoke-GodotCheck 'car-capture' @('--fixed-fps', '60', '--script', 'res://tests/car_capture.gd')
+        Invoke-GodotCheck 'hazard-capture' @('--fixed-fps', '60', '--script', 'res://tests/hazard_capture.gd')
+        Invoke-GodotCheck 'secret-capture' @('--fixed-fps', '60', '--script', 'res://tests/secret_capture.gd')
+        Invoke-GodotCheck 'traffic-models-capture' @('--fixed-fps', '60', '--script', 'res://tests/traffic_models.gd', '--', '--capture')
+        Invoke-GodotCheck 'apex-capture' @('--fixed-fps', '60', '--script', 'res://tests/apex_capture.gd')
+        Invoke-GodotCheck 'background-capture' @('--fixed-fps', '60', '--script', 'res://tests/background.gd', '--', '--capture')
+    }
+    Write-Output 'VALIDATION PASS'
+}
+finally {
+    $env:APPDATA = $savedAppData
+    $env:LOCALAPPDATA = $savedLocalAppData
+}
