@@ -1,4 +1,4 @@
-# Systematic Secret Mode, player names and local rankings
+# sySTEMatic Secret Mode, player names and local rankings
 
 The requested game extension adds a named-player leaderboard, an access-code secret level with finite boost and police pursuits, and a reusable post-like resume code. Both access and resume codes are manually edited in `config/secret_mode.cfg` and stay valid until changed. Existing Fair and Infinite Boost modes retain their current rules and score saves. The desktop project has no backend or social-account connection and does not verify likes automatically.
 

@@ -1,4 +1,4 @@
-# Systematic Secret Mode Implementation Plan
+# sySTEMatic Secret Mode Implementation Plan
 
 > Follow-up requirement: resume codes are now reusable and manually edited beside `access_code` in `config/secret_mode.cfg`. The original one-time issuer/consumption steps below record the initial implementation; they have been replaced by current config validation, updated tests and `docs/local-event-setup.md`.
 

@@ -1,6 +1,6 @@
 # Synthwave Drive
 
-A Godot 4.6 arcade endless racer: weave through futuristic traffic, avoid potholes and closed work lanes, earn boost from close passes, and escape police in the hidden Systematic Secret level. Named leaderboards and manually configured reusable continuation codes run locally. Built with GDScript, procedural meshes, shaders, original synthesized audio, and the supplied Systematic Robotics logo. No plugins are required.
+A Godot 4.6 arcade endless racer: weave through futuristic traffic, avoid potholes and closed work lanes, earn boost from close passes, and escape police in the hidden sySTEMatic Secret level. Named leaderboards and manually configured reusable continuation codes run locally. Built with GDScript, procedural meshes, shaders, original synthesized audio, and the supplied sySTEMatic Robotics logo. No plugins are required.
 
 ## Run
 
@@ -32,7 +32,7 @@ The HUD gives speed the strongest emphasis, with score and combo on the left. A 
 
 The player car has a futuristic wedge body, sloped tinted canopy, round tires with five-spoke rims, slim headlights, a low aero wing, segmented rear lights, hood vents, diffuser, and hollow exhaust tips. Metallic magenta paint and cyan accents keep its silhouette distinct from traffic. Steering, body lean, and boost trails remain attached to the model.
 
-The original Systematic Robotics logo appears beside the title, on the car's roof, and as the Godot application icon. Its colors, transparency, and proportions are preserved; distance filtering keeps the roof graphic stable in the chase view. The source is `logo.png`, copied unchanged from the supplied image.
+The original sySTEMatic Robotics logo appears beside the title, on the car's roof, and as the Godot application icon. Its colors, transparency, and proportions are preserved; distance filtering keeps the roof graphic stable in the chase view. The source is `logo.png`, copied unchanged from the supplied image.
 
 ## Modes
 
@@ -40,7 +40,7 @@ Choose **Fair** or **Infinite Boost** on the title screen. Fair uses earned boos
 
 The selected mode is shown in the HUD and results, retained on restart, and can be changed after returning to the title screen. Records are separate so unlimited-boost runs do not overwrite Fair records. Existing high-score saves belong to Fair mode.
 
-**Systematic Secret** unlocks through **F8** (or **Ctrl+Shift+S**, for keyboards where F8 is a media key) on the title and the code in `config/secret_mode.cfg`. The supplied phrase is `SYSTEMATIC`; change it in that file for your event. There is no hard-coded fallback. Missing/empty config keeps the mode locked, and a changed phrase invalidates the saved unlock when selecting/restarting Secret. Successful entry reveals the third mode card. This level uses a blue night palette and finite earned boost.
+**sySTEMatic Secret** unlocks through **F8** (or **Ctrl+Shift+S**, for keyboards where F8 is a media key) on the title and the code in `config/secret_mode.cfg`. The supplied phrase is `SYSTEMATIC`; change it in that file for your event. There is no hard-coded fallback. Missing/empty config keeps the mode locked, and a changed phrase invalidates the saved unlock when selecting/restarting Secret. Successful entry reveals the third mode card. This level uses a blue night palette and finite earned boost.
 
 In Secret, traffic impact, a second pothole within ten driving seconds, or entering roadworks starts a moving police chase. Traffic costs up to 1,000 points and 30 m/s; repeat holes cost up to 500 and 18 m/s; roadworks cost up to 750 and 26 m/s. Speed recovers over four seconds, and limited boost remains usable during recovery. Police start 64 m behind with a three-second approach grace. Sixteen clean seconds without mistakes or close calls, or a gap of 100 m, escapes and awards 1,000 points. Further mistakes cost 14 m of gap; close calls earn fuel but cost 6 m and reset clean progress. A gap of 7 m means capture. A live, zoomed rear-view shows the actual police car.
 

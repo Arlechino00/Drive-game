@@ -274,7 +274,7 @@ func _build_mode_choice() -> void:
 	for mode in range(3):
 		var button := _make_button("")
 		button.name = ["FairMode", "InfiniteBoostMode", "SecretMode"][mode]
-		button.tooltip_text = ["Fair mode: earn boost with near misses", "Infinite Boost mode: unlimited boost, separate personal best", "Systematic Secret: earned boost and police pursuits"][mode]
+		button.tooltip_text = ["Fair mode: earn boost with near misses", "Infinite Boost mode: unlimited boost, separate personal best", "sySTEMatic Secret: earned boost and police pursuits"][mode]
 		button.custom_minimum_size = Vector2(256, 88)
 		button.visible = mode != 2 or _secret_unlocked
 		button.toggle_mode = true
@@ -310,12 +310,12 @@ func configure_mode(mode: int) -> void:
 		mode_buttons[index].set_pressed_no_signal(index == _mode)
 		_mode_captions[index].text = ("✓  " if index == _mode else "") + ["Fair", "Infinite Boost", "Secret"][index]
 		_mode_captions[index].add_theme_color_override("font_color", CYAN if index == _mode else WHITE)
-	var caption: String = ["Fair", "Infinite Boost", "Systematic Secret"][_mode]
+	var caption: String = ["Fair", "Infinite Boost", "sySTEMatic Secret"][_mode]
 	mode_label.text = "Score  ·  " + caption
 	result_mode_label.text = caption + " mode"
 	if _mode == 2 and _resumed:
 		mode_label.text = "Score  ·  Secret  ·  Resumed"
-		result_mode_label.text = "Systematic Secret  ·  Resumed run"
+		result_mode_label.text = "sySTEMatic Secret  ·  Resumed run"
 	mode_detail.text = ["Close passes earn boost and grow your combo.", "Unlimited boost. Separate personal best.", "Earn boost. Escape police with speed or clean driving."][_mode]
 	_update_boost_display()
 
@@ -549,7 +549,7 @@ func _make_overlay(parent: Control, node_name: String, title: String, subtitle: 
 		branding.add_theme_constant_override("separation", 22)
 		column.add_child(branding)
 		brand_logo = TextureRect.new()
-		brand_logo.name = "SystematicRoboticsLogo"
+		brand_logo.name = "sySTEMaticRoboticsLogo"
 		brand_logo.texture = load("res://logo.png") as Texture2D
 		brand_logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		brand_logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
