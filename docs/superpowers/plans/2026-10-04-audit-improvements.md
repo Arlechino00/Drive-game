@@ -50,7 +50,7 @@
 - [x] Run full validation, visual checks, and cold benchmark.
 - [x] Build Windows release, exercise exported configuration/unlock/resume, inspect package.
 - [x] Independent final review; resolve material findings and rerun affected checks.
-- [ ] Commit and push authorized work; publish validated Windows package and verify remote checks where available.
+- [x] Commit and push authorized work; publish validated Windows package and verify remote checks where available.
 
 ## Ownership and integration
 
@@ -62,3 +62,7 @@
 | Primary | game.gd, game_settings.gd, game_ui.gd, settings/cold benchmark tests, README, docs assets, LICENSE | coordinates all shared interfaces |
 
 Ruling: use the existing project checkout for integration, as requested by the user; do not copy or reset ongoing shared agent work. Keep progress in .godot/validation/audit-improvements-progress.md, a Windows-friendly ignored scratch location.
+
+## Completion evidence
+
+Completed 2026-10-04. Game commit: a10e4bcd9c5497a128adbe4c2cb0c6af9eace70d. Local 39-check suite and independent reviews passed. GitHub validation runs 37164604415 and 37164666322 passed; release run 37164666324 passed and published v0.1.0. The downloaded GitHub Windows ZIP was checksum-verified and passed all three exported configuration/unlock/resume scenarios. Published ZIP SHA256: 0298e05cc2e9554927dfc83b476b04b8542c939b28ffb9b1e423e52b699e17a5.
