@@ -8,6 +8,7 @@ const MAX_FILE_BYTES := 1048576
 
 var player_name: String = ""
 var save_path: String
+var last_recovery_backup_path: String = ""
 var _entries: Array[Dictionary] = []
 
 
@@ -16,9 +17,11 @@ func _init(storage_path: String = "user://player_records.cfg") -> void:
 
 
 func load_records() -> Error:
-	player_name = ""
-	_entries.clear()
 	if not FileAccess.file_exists(save_path):
+		if DirAccess.dir_exists_absolute(save_path):
+			return ERR_FILE_CANT_READ
+		player_name = ""
+		_entries.clear()
 		return OK
 	var file := FileAccess.open(save_path, FileAccess.READ)
 	if file == null:
@@ -31,18 +34,59 @@ func load_records() -> Error:
 	var error := config.load(save_path)
 	if error != OK:
 		return error
-	if config.get_value("meta", "version", null) != FORMAT_VERSION:
+	if config.get_value("meta", "version", -1) != FORMAT_VERSION:
 		return ERR_FILE_CORRUPT
+	# Parse into a candidate: failed refreshes must retain the last valid cache.
+	var loaded_name := ""
+	var loaded_entries: Array[Dictionary] = []
 	var saved_name: Variant = config.get_value("profile", "name", "")
 	if saved_name is String and _valid_name(saved_name):
-		player_name = _display_name(saved_name)
+		loaded_name = _display_name(saved_name)
 	var saved_entries: Variant = config.get_value("records", "entries", [])
 	if saved_entries is Array:
 		for value: Variant in saved_entries:
 			if value is Dictionary and _valid_entry(value):
-				_store_best(_entries, _entry(value.name, value.mode, value.score, float(value.distance), value.resumed, value.escapes))
-	_trim_entries(_entries)
+				_store_best(loaded_entries, _entry(value.name, value.mode, value.score, float(value.distance), value.resumed, value.escapes))
+	_trim_entries(loaded_entries)
+	player_name = loaded_name
+	_entries = loaded_entries
 	return OK
+
+
+func recover_records() -> Error:
+	# Recovery is explicit. Even unsupported future-format data is preserved
+	# byte-for-byte before a current-format replacement is attempted.
+	last_recovery_backup_path = ""
+	var lock_path := save_path + ".lock"
+	var error := DirAccess.make_dir_absolute(lock_path)
+	if error != OK:
+		return ERR_BUSY if DirAccess.dir_exists_absolute(lock_path) else error
+	error = _recover_locked()
+	DirAccess.remove_absolute(lock_path)
+	return error
+
+
+func _recover_locked() -> Error:
+	var latest := PlayerRecords.new(save_path)
+	var error := latest.load_records()
+	if error == OK:
+		player_name = latest.player_name
+		_entries = latest._entries
+		return OK
+	if error != ERR_FILE_CORRUPT and error != ERR_PARSE_ERROR:
+		return error
+	var backup_prefix := save_path + ".recovered-%s" % Time.get_ticks_usec()
+	var backup_path := backup_prefix
+	var suffix := 0
+	while FileAccess.file_exists(backup_path) or DirAccess.dir_exists_absolute(backup_path):
+		suffix += 1
+		backup_path = backup_prefix + "-%s" % suffix
+	error = DirAccess.copy_absolute(save_path, backup_path)
+	if error != OK:
+		return error
+	last_recovery_backup_path = backup_path
+	# Keep any previously validated cache. A first load recovers to empty data.
+	return _write_records(player_name, _entries)
 
 
 func save_player_name(raw: String) -> Error:
@@ -54,6 +98,11 @@ func save_player_name(raw: String) -> Error:
 
 func normalize_name(raw: String) -> String:
 	return _display_name(raw).to_lower()
+
+
+func display_player_name(raw: String) -> String:
+	# Share profile validation with unsaved play when storage is unavailable.
+	return _display_name(raw) if _valid_name(raw) else ""
 
 
 func record_run(name: String, mode: int, score: int, distance: float, resumed: bool = false, escapes: int = 0) -> Error:
@@ -180,18 +229,22 @@ func _save_locked(name: String, entries: Array[Dictionary], update_name: bool) -
 		_store_best(latest._entries, entry)
 	_trim_entries(latest._entries)
 	var saved_name := name if update_name or not FileAccess.file_exists(save_path) else latest.player_name
+	return _write_records(saved_name, latest._entries)
+
+
+func _write_records(name: String, entries: Array[Dictionary]) -> Error:
 	var config := ConfigFile.new()
 	config.set_value("meta", "version", FORMAT_VERSION)
-	config.set_value("profile", "name", saved_name)
-	config.set_value("records", "entries", latest._entries)
+	config.set_value("profile", "name", name)
+	config.set_value("records", "entries", entries)
 	var temporary_path := save_path + ".tmp"
-	error = config.save(temporary_path)
+	var error := config.save(temporary_path)
 	if error != OK:
 		return error
 	error = DirAccess.rename_absolute(temporary_path, save_path)
 	if error != OK:
 		DirAccess.remove_absolute(temporary_path)
 	else:
-		player_name = saved_name
-		_entries = latest._entries
+		player_name = name
+		_entries = entries.duplicate(true)
 	return error

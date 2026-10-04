@@ -50,6 +50,7 @@ func _run() -> void:
 			var before_escape := escaped_count
 			for frame in range(14 * 60):
 				pursuit.advance(1.0 / 60.0, Vector3.ZERO, base_speed, base_speed)
+			await process_frame
 			_check(not pursuit.active and escaped_count == before_escape + 1, "clean recovery eventually escapes at %.0f/%.0f" % [base_speed, loss])
 
 	# Modest damaged speed holds the gap below the distance escape boundary,
@@ -61,6 +62,7 @@ func _run() -> void:
 	_check(pursuit.active and pursuit.gap_m < 100.0, "clean-time route waits before sixteen seconds")
 	for frame in range(61):
 		pursuit.advance(1.0 / 60.0, Vector3.ZERO, 42.0, 45.0)
+	await process_frame
 	_check(not pursuit.active and escaped_count == clean_escape_before + 1 and pursuit.clean_seconds >= 16.0, "sixteen clean seconds escape without reaching distance boundary")
 	pursuit.advance(10.0, Vector3.ZERO, 90.0, 45.0)
 	_check(escaped_count == clean_escape_before + 1, "escaped signal only emits once")
@@ -82,6 +84,7 @@ func _run() -> void:
 			var boosting: bool = fuel.update_boost(true, 1.0 / 60.0)
 			var boosted_speed: float = minf(80.0, base_speed + (18.0 if boosting else 0.0))
 			pursuit.advance(1.0 / 60.0, Vector3.ZERO, boosted_speed, base_speed)
+		await process_frame
 		_check(not pursuit.active and escaped_count == boosted_escape_before + 1 and pursuit.clean_seconds < 10.0 and pursuit.gap_m >= 100.0, "finite boost escapes through measured gap at %.0f m/s cruise" % base_speed)
 		_check(fuel.boost_charge >= 0.0 and fuel.boost_charge < 0.8 and not fuel.infinite_boost, "distance escape consumes only finite available fuel")
 
@@ -125,6 +128,7 @@ func _run() -> void:
 	pursuit.gap_m = 100.0
 	var boundary_escapes := escaped_count
 	pursuit.advance(0.01, Vector3.ZERO, 45.0, 45.0)
+	await process_frame
 	_check(not pursuit.active and escaped_count == boundary_escapes + 1, "hundred metre boundary escapes")
 
 	# Shared-world rear view follows actual coordinates and looks at the police.
@@ -173,11 +177,62 @@ func _run() -> void:
 	_check(_node_count(pursuit) == initial_count and initial_count <= 160, "two hundred reuses retain fixed bounded nodes")
 	_check(pursuit.get_rearview_texture() == texture, "restarts retain the same rear view texture")
 	_check(_physics_node_count(pursuit) == 0, "repeated starts never create physics actors")
+	await _test_deferred_contacts(pursuit)
 	pursuit.free()
 	await process_frame
 	if failures == 0:
 		print("PURSUIT PASS: first-hit recovery at 45/62 m/s, clean/gap escapes, repeat-hit capture, close-call reset, thresholds, pause, effects-off, actual rear camera and 200 bounded reuses (%s nodes)" % initial_count)
 	quit(1 if failures else 0)
+
+
+func _test_deferred_contacts(pursuit: PolicePursuit) -> void:
+	var pass_actor := RoadObstacle.new()
+	root.add_child(pass_actor)
+	pass_actor.near_miss.connect(func(_points: int, _clearance: float): pursuit.register_close_call())
+	for route in ["clean", "distance"]:
+		for contact in ["close", "mistake"]:
+			pursuit.begin(Vector3.ZERO)
+			pursuit.gap_m = 60.0 if route == "clean" else 99.99
+			pursuit.clean_seconds = 15.999 if route == "clean" else 4.0
+			var before := escaped_count
+			# The pass completion is queued before pursuit advancement, exactly
+			# as game -> spawner -> obstacle ordering does on the contact frame.
+			if contact == "close":
+				pass_actor.activate(Vector3(2.85, 0, -4), RoadObstacle.Kind.CAR, 0.0)
+				pass_actor.advance_pass(10.0, 0.0)
+			else:
+				pursuit.register_mistake.call_deferred()
+			pursuit.advance(1.0 / 60.0, Vector3.ZERO, 80.0, 62.0)
+			_check(pursuit.active and escaped_count == before, "escape remains provisional until %s %s result" % [route, contact])
+			await process_frame
+			_check(pursuit.active and escaped_count == before and pursuit.clean_seconds == 0.0 and pursuit.gap_m < 100.0, "%s %s prevents premature escape" % [route, contact])
+			_check(contact != "close" or pass_actor.pass_awarded, "near pass is resolved through the real deferred obstacle path")
+	# Real Area contact cancels its queued near pass and still captures immediately.
+	pursuit.begin(Vector3.ZERO)
+	pursuit.gap_m = 12.0
+	var catches := caught_count
+	pass_actor.activate(Vector3(2.85, 0, -4), RoadObstacle.Kind.CAR, 0.0)
+	pass_actor.advance_pass(10.0, 0.0)
+	pass_actor.player_hit.connect(pursuit.register_mistake)
+	pass_actor._resolve_player_contact()
+	_check(not pursuit.active and caught_count == catches + 1, "capture remains synchronous")
+	await process_frame
+	_check(not pass_actor.pass_awarded, "queued Area contact cancels near-pass award")
+	for restart in [false, true]:
+		pursuit.begin(Vector3.ZERO)
+		pursuit.gap_m = 100.0
+		var escapes := escaped_count
+		pursuit.advance(0.01, Vector3.ZERO, 62.0, 62.0)
+		pursuit.reset_pursuit()
+		if restart:
+			pursuit.begin(Vector3.ZERO)
+			# Even if the new chase also meets a boundary, only its own queued
+			# callback may resolve it. The old generation cannot touch it.
+			pursuit.clean_seconds = 16.0
+		await process_frame
+		_check(escaped_count == escapes and pursuit.active == restart, "stale escape callback cannot resolve reset or restarted chase")
+	pass_actor.free()
+	pursuit.reset_pursuit()
 
 
 func _node_count(node: Node) -> int:

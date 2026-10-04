@@ -4,7 +4,7 @@ Players enter a driver name before starting. Leaderboard shows the best ten driv
 
 ## Edit both codes in one file
 
-Open `config/secret_mode.cfg`:
+When running the source project, open `config/secret_mode.cfg`. In a Windows release, edit `secret_mode.cfg` beside `SynthwaveDrive.exe` after extracting the complete ZIP:
 
 ```ini
 [secret_mode]
@@ -37,8 +37,10 @@ Godot's `user://` normally resolves to `%APPDATA%/Godot/app_userdata/Synthwave D
 | `highscore.cfg` | Per-mode score, distance, combo and speed records |
 | `settings.cfg` | Sound, effects, camera and window preferences |
 
-The editable codes live in the project's `config/secret_mode.cfg`, rather than these save files. Validation uses its own profile under `.godot/validation`.
+The editable codes live in the project's `config/secret_mode.cfg`, or beside the exported executable, rather than these save files. An exported build uses its bundled configuration only when the loose file is absent. A present invalid file keeps access/continuation unavailable instead of using a different code. Validation uses its own profile under `.godot/validation`.
 
 Leaderboard and record saves merge the latest results before writing, so an older open game cannot erase a newer saved result. Score fields are validated independently; one malformed field does not discard the other valid records. If saved Secret unlock data is damaged, entering the current access code rebuilds it. Incorrect codes and unreadable/unwritable storage do not grant access.
+
+Leaderboard refreshes when opened or its mode filter changes. A corrupt or unsupported `player_records.cfg` is copied unchanged to a unique `player_records.cfg.recovered-*` backup before supported records are rebuilt. The backup preserves future-format data but is not migrated automatically. Keep it if you need to recover older entries. A valid driver name can still start a run if records cannot be written; the game displays a save notice.
 
 Saves briefly hold an empty lock directory beside the affected file: `secret_access.cfg.lock`, `player_records.cfg.lock`, or `highscore.cfg.lock`. If a game crashes during a save, close all game instances, remove only the corresponding empty lock directory, and retry. Resume validation reads the configuration directly and does not depend on these locks.

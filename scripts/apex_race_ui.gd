@@ -60,11 +60,13 @@ func attach(base_ui: GameUI) -> void:
 	reset_ui()
 
 
-func update_race(active: bool, remaining: float, lead_m: float, boost_seconds: float, clean: bool, reward_remaining: float, required_boost_seconds: float = 4.0) -> void:
+func update_race(active: bool, remaining: float, lead_m: float, boost_seconds: float, clean: bool, reward_remaining: float, required_boost_seconds: float = 4.0, countdown_remaining: float = 0.0) -> void:
 	_race_active = active
 	_lead_m = lead_m
 	_reward_remaining = maxf(0.0, reward_remaining)
 	countdown_label.text = "APEX RACE  ·  %ds" % ceili(maxf(0.0, remaining))
+	if countdown_remaining > 0.0:
+		countdown_label.text = "GET READY  ·  %d" % ceili(countdown_remaining)
 	if absf(lead_m) < 0.5:
 		lead_label.text = "SIDE BY SIDE"
 	else:
@@ -82,7 +84,7 @@ func update_race(active: bool, remaining: float, lead_m: float, boost_seconds: f
 
 func show_challenge(opponent_x: float = -5.0, required_boost_seconds: float = 4.0) -> void:
 	_place_notification(opponent_x)
-	_notify("APEX CHALLENGES YOU", "30 seconds. Finish ahead. Boost for at least %ds.\nAvoid every pothole. Hold Shift / Space to boost." % roundi(required_boost_seconds), GameUI.MAGENTA)
+	_notify("APEX CHALLENGES YOU", "3s countdown, then race for 30s. Finish ahead.\nBOOST TARGET: %ds during the race. Avoid potholes.\nFull tank: 3.7s. Earn close passes to refill.\nAfter countdown, hold Shift / Space to boost." % roundi(required_boost_seconds), GameUI.MAGENTA)
 
 
 func update_opponent(actor: Node3D, world: World3D, road_materials: Dictionary = {}) -> void:

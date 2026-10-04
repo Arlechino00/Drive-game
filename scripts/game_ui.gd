@@ -47,6 +47,8 @@ var debug_label: Label
 var settings_sliders: Dictionary = {}
 var settings_values: Dictionary = {}
 var fullscreen_toggle: CheckButton
+var quality_choice: OptionButton
+var resolution_choice: OptionButton
 var _settings_return: ColorRect
 var _feedback_tween: Tween
 var _effects: float = 1.0
@@ -373,12 +375,14 @@ func show_game_over(score: int, best_score: int, distance: float = 0.0, top_comb
 	hud.visible = not police_scene
 
 
-func configure_settings(volume: float, shake: float, effects: float, fullscreen: bool) -> void:
+func configure_settings(volume: float, shake: float, effects: float, fullscreen: bool, quality: int = 1, resolution: int = 0) -> void:
 	_configuring = true
 	settings_sliders["volume"].value = clampf(volume, 0.0, 1.0)
 	settings_sliders["shake"].value = clampf(shake, 0.0, 1.0)
 	settings_sliders["effects"].value = clampf(effects, 0.0, 1.0)
 	fullscreen_toggle.button_pressed = fullscreen
+	quality_choice.select(clampi(quality, 0, 2))
+	resolution_choice.select(clampi(resolution, 0, 3))
 	for key in settings_sliders:
 		_update_setting_value(key, float(settings_sliders[key].value))
 	_configuring = false
@@ -420,6 +424,7 @@ func _clear_feedback() -> void:
 
 func _build_settings(parent: Control) -> void:
 	settings_menu = _make_overlay(parent, "SettingsMenu", "Settings", "Find your rhythm.", CYAN)
+	_column(settings_menu).add_theme_constant_override("separation", 10)
 	var grabber := _slider_icon(WHITE)
 	var active_grabber := _slider_icon(CYAN)
 	for entry in [["volume", "Master volume"], ["shake", "Camera shake"], ["effects", "Visual effects"]]:
@@ -455,6 +460,10 @@ func _build_settings(parent: Control) -> void:
 				settings_changed.emit(key, value))
 		settings_sliders[key] = slider
 		_column(settings_menu).add_child(slider)
+	quality_choice = _setting_choice("quality", "Render quality", ["Low", "Balanced", "High"])
+	quality_choice.tooltip_text = "Low reduces glow. High smooths car and road edges."
+	resolution_choice = _setting_choice("resolution", "Window size", ["Current window", "1280 × 720", "1920 × 1080", "2560 × 1440"])
+	resolution_choice.tooltip_text = "Smaller windows draw faster. Fullscreen uses your display size."
 	fullscreen_toggle = CheckButton.new()
 	fullscreen_toggle.text = "Fullscreen"
 	fullscreen_toggle.add_theme_font_size_override("font_size", 24)
@@ -475,6 +484,25 @@ func _build_settings(parent: Control) -> void:
 	_column(settings_menu).add_child(fullscreen_toggle)
 	_add_button(settings_menu, "Back", _close_settings, true)
 	_add_footer(settings_menu, "Esc  ·  Back       Changes save automatically")
+
+
+func _setting_choice(key: String, caption: String, choices: Array) -> OptionButton:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	_column(settings_menu).add_child(row)
+	var label := _make_label(caption, 24, WHITE)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	var choice := OptionButton.new()
+	choice.custom_minimum_size = Vector2(245, 48)
+	choice.add_theme_font_size_override("font_size", 22)
+	for text in choices:
+		choice.add_item(text)
+	choice.item_selected.connect(func(index: int) -> void:
+		if not _configuring:
+			settings_changed.emit(key, float(index)))
+	row.add_child(choice)
+	return choice
 
 
 func _update_setting_value(key: String, value: float) -> void:

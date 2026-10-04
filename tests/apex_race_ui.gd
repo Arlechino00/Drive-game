@@ -31,7 +31,10 @@ func _run() -> void:
 	for target in range(4, 8):
 		race.update_race(true, 29.2, -12.0, target - 0.1, true, 0.0, float(target))
 		race.show_challenge(-5.0, float(target))
-		_check("/%.1f" % float(target) in race.requirements_label.text and "least %ds" % target in race.notification_detail.text, "each4–7s boost target matches in challenge and status")
+		_check("/%.1f" % float(target) in race.requirements_label.text and "TARGET: %ds" % target in race.notification_detail.text, "each4–7s boost target matches in challenge and status")
+	_check("3.7s" in race.notification_detail.text and "close passes" in race.notification_detail.text, "challenge explains finite fuel and earned refill")
+	race.update_race(true, 30.0, -13.0, 0.0, true, 0.0, 7.0, 2.2)
+	_check("GET READY" in race.countdown_label.text and "3" in race.countdown_label.text and "/7.0" in race.requirements_label.text, "countdown and selected boost target are distinct")
 	race.update_opponent(actor, arena.get_world_3d())
 	if race.get("opponent_road") == null:
 		_check(false, "rival feed has bounded road backdrop")

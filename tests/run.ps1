@@ -1,6 +1,7 @@
 param(
     [string]$GodotPath = 'godot',
-    [switch]$Capture
+    [switch]$Capture,
+    [ValidateRange(1, 3600)][int]$TimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,13 +10,14 @@ $validationPath = Join-Path $projectPath '.godot/validation'
 $savedAppData = $env:APPDATA
 $savedLocalAppData = $env:LOCALAPPDATA
 New-Item -ItemType Directory -Force -Path (Join-Path $validationPath 'appdata') | Out-Null
+. (Join-Path $projectPath 'tools/process.ps1')
 
 function Invoke-GodotCheck([string]$Name, [string[]]$RunArguments) {
     $logPath = Join-Path $validationPath ($Name + '.log')
-    & $GodotPath --path $projectPath --log-file $logPath @RunArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Name failed (exit $LASTEXITCODE). See $logPath"
-    }
+    Remove-Item -LiteralPath $logPath -ErrorAction SilentlyContinue
+    Write-Output "Checking $Name (limit $TimeoutSeconds seconds)"
+    $result = Invoke-BoundedProcess -Executable $GodotPath -Arguments (@('--path', $projectPath, '--log-file', $logPath) + $RunArguments) -LogPath $logPath -TimeoutSeconds $TimeoutSeconds
+    if (-not (Test-Path -LiteralPath $logPath)) { throw "$Name produced no engine log. See $logPath.stdout.log" }
     if (Select-String -LiteralPath $logPath -Pattern '^(SCRIPT ERROR:|ERROR:|WARNING:)' -Quiet) {
         throw "$Name logged an engine/script error or warning. See $logPath"
     }
@@ -29,9 +31,12 @@ try {
     Invoke-GodotCheck 'editor' @('--headless', '--editor', '--quit')
     Invoke-GodotCheck 'smoke' @('--headless', '--script', 'res://tests/smoke.gd')
     Invoke-GodotCheck 'handling' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/handling.gd')
-    foreach ($subsystem in @('progression', 'hazard_rules', 'settings', 'player_records', 'record_recovery', 'secret_access', 'pursuit', 'secret_world', 'modes', 'traffic', 'encounters', 'world', 'background', 'car_design', 'traffic_design', 'traffic_models', 'apex_race', 'apex_safety', 'apex_race_ui', 'apex_visibility', 'aftermath', 'ui', 'ui_responsive', 'community_ui', 'polish')) {
+    foreach ($subsystem in @('progression', 'hazard_rules', 'settings', 'player_records', 'record_recovery', 'secret_access', 'persistence_config', 'pursuit', 'secret_world', 'modes', 'traffic', 'encounters', 'world', 'background', 'car_design', 'traffic_design', 'traffic_models', 'apex_race', 'apex_safety', 'apex_race_ui', 'apex_visibility', 'aftermath', 'ui', 'ui_responsive', 'community_ui', 'polish')) {
         Invoke-GodotCheck $subsystem @('--headless', '--script', "res://tests/$subsystem.gd")
     }
+    Invoke-GodotCheck 'render-settings' @('--headless', '--script', 'res://tests/render_settings.gd')
+    Invoke-GodotCheck 'apex-generated' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/apex_generated.gd')
+    Invoke-GodotCheck 'audit-regressions' @('--headless', '--script', 'res://tests/audit_regressions.gd')
     Invoke-GodotCheck 'hazards' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/hazards.gd')
     Invoke-GodotCheck 'secret-mode' @('--headless', '--fixed-fps', '60', '--script', 'res://tests/secret_mode.gd')
     Invoke-GodotCheck 'endurance' @('--headless', '--script', 'res://tests/endurance.gd')

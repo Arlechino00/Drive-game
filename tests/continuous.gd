@@ -13,6 +13,8 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	var cold_start := Time.get_ticks_usec()
+	var cold := OS.get_cmdline_user_args().has("--cold-benchmark")
 	var game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 	game.run_seed = 2468
@@ -35,7 +37,9 @@ func _run() -> void:
 		_key(KEY_SHIFT, true)
 	var initial_memory := int(Performance.get_monitor(Performance.MEMORY_STATIC))
 	var fixed_nodes: int = _count(game) - _count(game.obstacles)
-	var vehicle_nodes: int = _catalog_node_budget()
+	# Cold runs deliberately keep the normal three-model startup cache and
+	# include lazy construction of additional traffic models in frame timings.
+	var vehicle_nodes: int = 620 if cold else _catalog_node_budget()
 	var maximum_nodes := 0
 	var race_frames := 0
 	var races_started := 0
@@ -46,12 +50,12 @@ func _run() -> void:
 	var braking_until := -1
 	var previously_braking := false
 	var frames := 10800
-	var benchmark := OS.get_cmdline_user_args().has("--render-benchmark")
-	var pursuit_benchmark := benchmark and secret and OS.get_cmdline_user_args().has("--pursuit")
-	var apex_benchmark := benchmark and OS.get_cmdline_user_args().has("--apex")
+	var benchmark := cold or OS.get_cmdline_user_args().has("--render-benchmark")
+	var pursuit_benchmark := benchmark and not cold and secret and OS.get_cmdline_user_args().has("--pursuit")
+	var apex_benchmark := benchmark and not cold and OS.get_cmdline_user_args().has("--apex")
 	var rendering := benchmark or OS.get_cmdline_user_args().has("--render-soak")
 	if benchmark:
-		frames = 600
+		frames = 1800 if cold else 600
 	if rendering:
 		game.distance = 2300.0
 		game.speed = game.director.MAX_CRUISE_SPEED
@@ -69,8 +73,14 @@ func _run() -> void:
 		rival.activate(Vector3(-5, 0, -13), RoadObstacle.Kind.WIDE, game.player.position.x, Models.Model.APEX)
 		game._update_apex_race(0.0)
 	var start_time := Time.get_ticks_msec()
+	var startup_ms := (Time.get_ticks_usec() - cold_start) / 1000.0
+	var frame_times: Array[float] = []
+	var lazy_frames: Array[float] = []
+	var built_models := _built_models(game)
+	var observed_models: Dictionary = {}
 	var drawn_start := Engine.get_frames_drawn()
 	for frame in range(frames):
+		var frame_start := Time.get_ticks_usec()
 		var target_x := _route_target(game, game.player.position.x)
 		if unlimited and not benchmark and not rendering:
 			# Release the real boost key when Apex and nearby traffic leave
@@ -97,6 +107,16 @@ func _run() -> void:
 		_set_steer(_steering_to(target_x - game.player.position.x, velocity, game.player.steering_release))
 		await physics_frame
 		await process_frame
+		if cold:
+			var frame_ms := (Time.get_ticks_usec() - frame_start) / 1000.0
+			frame_times.append(frame_ms)
+			var now_built := _built_models(game)
+			if now_built > built_models:
+				lazy_frames.append(frame_ms)
+			built_models = now_built
+			for actor in game.obstacles.obstacle_pool:
+				if actor.active and actor.model_id >= 0:
+					observed_models[actor.model_id] = true
 		if game.progress.boosting:
 			boosted_frames += 1
 		if game.state != game.GameState.PLAYING:
@@ -125,6 +145,34 @@ func _run() -> void:
 	_key(KEY_SHIFT, false)
 	var elapsed := (Time.get_ticks_msec() - start_time) / 1000.0
 	var rendered_frames := Engine.get_frames_drawn() - drawn_start
+	if cold:
+		_check(rendered_frames > 0, "cold benchmark requires actual rendering")
+		frame_times.sort()
+		lazy_frames.sort()
+		var report := {
+			"engine": Engine.get_version_info().string,
+			"gpu": RenderingServer.get_video_adapter_name(),
+			"window": str(root.size),
+			"startup_ms": startup_ms,
+			"frames": frame_times.size(),
+			"drawn_frames": rendered_frames,
+			"median_ms": _percentile(frame_times, 0.5),
+			"p95_ms": _percentile(frame_times, 0.95),
+			"p99_ms": _percentile(frame_times, 0.99),
+			"maximum_ms": frame_times.back(),
+			"lazy_build_frames": lazy_frames.size(),
+			"lazy_build_maximum_ms": _percentile(lazy_frames, 1.0),
+			"observed_models": observed_models.keys(),
+			"seed": game.obstacles.active_seed,
+		}
+		DirAccess.make_dir_recursive_absolute("res://.godot/validation")
+		var output := FileAccess.open("res://.godot/validation/cold-benchmark.json", FileAccess.WRITE)
+		_check(output != null, "cold benchmark report opens")
+		if output != null:
+			output.store_string(JSON.stringify(report, "\t"))
+			output.close()
+		_check(lazy_frames.size() > 0 and observed_models.size() >= 4, "cold benchmark exercises real additional traffic construction")
+		print("COLD TRAFFIC BENCHMARK: " + JSON.stringify(report))
 	var final_distance: float = game.distance
 	if pursuit_benchmark:
 		_check(game.pursuit.active and game.community.rearview_panel.visible, "live police mirror stays active throughout the short benchmark")
@@ -296,6 +344,17 @@ func _count(node: Node) -> int:
 	for child in node.get_children():
 		total += _count(child)
 	return total
+
+
+func _built_models(game) -> int:
+	var count := 0
+	for actor in game.obstacles.obstacle_pool:
+		count += actor._model_visuals.size()
+	return count
+
+
+func _percentile(values: Array[float], fraction: float) -> float:
+	return values[clampi(ceili(values.size() * fraction) - 1, 0, values.size() - 1)] if not values.is_empty() else 0.0
 
 
 func _check(condition: bool, label: String) -> void:

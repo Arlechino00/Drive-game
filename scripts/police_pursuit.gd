@@ -24,6 +24,8 @@ var active: bool = false
 var gap_m: float = 0.0
 var clean_seconds: float = 0.0
 var _elapsed: float = 0.0
+var _generation: int = 0
+var _escape_queued: bool = false
 var _visual: PoliceAftermath
 var _rear_view: SubViewport
 var _rear_camera: Camera3D
@@ -88,7 +90,8 @@ func advance(delta: float, player_at: Vector3, speed: float, base_speed: float, 
 		_elapsed += step
 		remaining -= step
 		advanced += step
-		_resolve_outcome()
+		if _resolve_outcome():
+			break
 	if active:
 		_update_visual(advanced, player_at, effects)
 
@@ -110,6 +113,8 @@ func register_close_call() -> void:
 
 
 func reset_pursuit() -> void:
+	_generation += 1
+	_escape_queued = false
 	active = false
 	gap_m = 0.0
 	clean_seconds = 0.0
@@ -132,12 +137,27 @@ func _resolve_outcome() -> bool:
 	if gap_m >= escape_gap or clean_seconds >= clean_escape_seconds - 0.000000001:
 		if clean_seconds >= clean_escape_seconds - 0.000000001:
 			clean_seconds = clean_escape_seconds
-		_finish(true)
+		# Swept near passes finish on the deferred queue so Area3D contacts can
+		# cancel them. Confirm escape only after those results have applied.
+		if not _escape_queued:
+			_escape_queued = true
+			_confirm_escape.call_deferred(_generation)
 		return true
 	return false
 
 
+func _confirm_escape(generation: int) -> void:
+	if generation != _generation or not active:
+		return
+	_escape_queued = false
+	if gap_m <= capture_gap:
+		_finish(false)
+	elif gap_m >= escape_gap or clean_seconds >= clean_escape_seconds - 0.000000001:
+		_finish(true)
+
+
 func _finish(did_escape: bool) -> void:
+	_escape_queued = false
 	active = false
 	visible = false
 	_rear_view.render_target_update_mode = SubViewport.UPDATE_DISABLED

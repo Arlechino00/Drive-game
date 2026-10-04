@@ -34,12 +34,12 @@ func _test_requirement_range() -> void:
 		_check(race.required_boost_seconds == requirement, "race accepts its drawn 4-7 second requirement")
 		actor.position.z = 20.0
 		race.boost_seconds = requirement - 0.01
-		_check(race.advance(30.0, false) == -1, "race fails just below its drawn boost requirement")
+		_check(race.advance(33.0, false) == -1, "race fails just below its drawn boost requirement")
 		actor.activate(Vector3(5, 0, -14), 3, -5.0, 8)
 		race.begin(actor, 62.0, requirement)
 		actor.position.z = 20.0
 		race.boost_seconds = requirement
-		_check(race.advance(30.0, false) == 1, "race accepts exact drawn boost requirement")
+		_check(race.advance(33.0, false) == 1, "race accepts exact drawn boost requirement")
 	race.begin(actor, 62.0, 0.0)
 	_check(race.required_boost_seconds == 4.0, "boost requirement clamps to minimum four seconds")
 	race.begin(actor, 62.0, 100.0)
@@ -61,6 +61,8 @@ func _test_outer_lane_detour() -> void:
 	center.activate(Vector3(0, 0, -42), 3, -5.0, 2)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	var traffic: Array[RoadObstacle] = [actor, blocker, center]
 	race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic, 62.0)
 	_check(race.lane_target == 5.0, "rival finds clear far lane through a physically safe center transit")
@@ -92,6 +94,8 @@ func _test_jammed_overtake() -> void:
 		right.activate(Vector3(5, 0, -26), 3, -5.0, 2)
 		var race := Race.new()
 		race.begin(actor, 62.0)
+		actor.cruise_speed = 63.0
+		race.countdown_remaining = 0.0
 		var traffic: Array[RoadObstacle] = [actor, blocker, right]
 		var cleared := false
 		for frame in range(90):
@@ -116,6 +120,8 @@ func _test_aggressive_bursts() -> void:
 	actor.activate(Vector3(5, 0, -14), 3, -5.0, 8)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	var traffic: Array[RoadObstacle] = [actor]
 	_check(actor.cruise_speed == 63.0, "initial challenge preserves baseline rival speed")
 	race.elapsed = 6.0
@@ -132,6 +138,8 @@ func _test_aggressive_bursts() -> void:
 	race.reset()
 	actor.activate(Vector3(5, 0, -100), 3, -5.0, 8)
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	var blocker := RoadObstacle.new()
 	root.add_child(blocker)
 	blocker.activate(Vector3(5, 0, -170), 3, -5.0, 2)
@@ -143,6 +151,7 @@ func _test_aggressive_bursts() -> void:
 	race.reset()
 	actor.activate(Vector3(5, 0, -14), 3, -5.0, 8)
 	race.begin(actor, 62.0, 7.0)
+	race.advance(3.0, false)
 	var speed := 62.0
 	var result := 0
 	for frame in range(1800):
@@ -164,6 +173,8 @@ func _test_safe_player_lane() -> void:
 	actor.activate(Vector3(0, 0, -14), Models.kind_for_model(8), -5.0, 8)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	spawner.begin_race(actor)
 	for frame in range(100):
 		race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, spawner.obstacle_pool)
@@ -182,6 +193,8 @@ func _test_committed_turn() -> void:
 	actor.activate(Vector3(0, 0, -8), 3, -5.0, 8)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	race.lane_target = -5.0
 	var traffic: Array[RoadObstacle] = [actor]
 	for frame in range(90):
@@ -203,6 +216,8 @@ func _test_braked_turn() -> void:
 	right.activate(Vector3(5, 0, -38), RoadObstacle.Kind.ROADWORKS, -5.0)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	actor.cruise_speed = 0.0
 	race.lane_target = -5.0
 	spawner.race_actor = actor
@@ -227,13 +242,15 @@ func _test_following_traffic() -> void:
 	right_blocker.activate(Vector3(5, 0, -26), 3, -5.0, 2)
 	var race := Race.new()
 	race.begin(actor, 62.0)
+	actor.cruise_speed = 63.0
+	race.countdown_remaining = 0.0
 	spawner.race_actor = actor
 	race.prepare_opponent(0.5, 62.0, -5.0, spawner.obstacle_pool)
 	_check(actor.cruise_speed < 63.0, "rival brakes when player and paired traffic block lane changes")
 	spawner.advance(40.0, 2040.0, 1.0, 0.5, -5.0)
 	_check(actor.position.z - blocker.position.z >= actor.half_length + blocker.half_length, "long tick preserves following collision gap")
 	actor.position.z = 20.0
-	_check(race.advance(30.0, false) == -1, "braked rival cannot grant an unboosted race win")
+	_check(race.advance(33.0, false) == -1, "braked rival cannot grant an unboosted race win")
 	race.reset()
 	spawner.free()
 
@@ -247,6 +264,8 @@ func _test_seeded_routes() -> void:
 		var actor := spawner._take_obstacle()
 		actor.activate(Vector3(0, 0, -14), 3, 100.0, 8)
 		race.begin(actor, 62.0)
+		actor.cruise_speed = 63.0
+		race.countdown_remaining = 0.0
 		spawner.begin_race(actor)
 		for frame in range(1800):
 			var elapsed := frame / 60.0

@@ -12,6 +12,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	_test_race_rules()
+	_test_countdown_acceleration()
 	_test_reward()
 	_test_spawn_catalog()
 	await _test_integration()
@@ -27,8 +28,8 @@ func _test_race_rules() -> void:
 		actor.activate(Vector3(-5, 0, -13), 3, 0, Models.Model.APEX)
 		var race := Race.new()
 		race.begin(actor, 62.0, fixture.required)
-		_check(actor.racing and actor.cruise_speed == 63.0, "Apex changes from traffic to race speed")
-		_check(race.advance(10.0, false) == 0 and race.remaining() == 20.0, "race does not resolve early")
+		_check(actor.racing and actor.cruise_speed == 14.0 and race.countdown_remaining == 3.0, "Apex retains encounter speed before smooth countdown acceleration")
+		_check(race.advance(13.0, false) == 0 and race.remaining() == 20.0, "race does not resolve early")
 		race.boost_seconds = fixture.boost
 		if not fixture.clean:
 			race.hit_pothole()
@@ -37,6 +38,30 @@ func _test_race_rules() -> void:
 		_check(not race.active and race.advance(1.0, true) == 0, "each race resolves once")
 		race.reset()
 		_check(not actor.racing and race.actor == null and race.clean and race.boost_seconds == 0.0, "race reset clears requirements and actor")
+	actor.free()
+
+
+func _test_countdown_acceleration() -> void:
+	var actor := RoadObstacle.new()
+	root.add_child(actor)
+	actor.activate(Vector3(-5, 0, -13), 3, 0, Models.Model.APEX)
+	var race := Race.new()
+	race.begin(actor, 62.0, 7.0)
+	var traffic: Array[RoadObstacle] = [actor]
+	for tick in range(180):
+		var before := actor.cruise_speed
+		race.prepare_opponent(1.0 / 60.0, 62.0, 0.0, traffic, 62.0)
+		_check(actor.cruise_speed - before <= race.INITIAL_ACCELERATION / 60.0 + 0.000001, "initial acceleration has no speed jump")
+		_check(race.advance(1.0 / 60.0, true) == 0, "countdown cannot finish a race")
+	_check(race.countdown_remaining == 0.0 and race.elapsed < 0.000001 and race.boost_seconds < 0.000001, "three countdown seconds consume no race or boost progress")
+	_check(is_equal_approx(actor.cruise_speed, 63.0), "rival reaches competitive speed during countdown")
+	race.advance(0.25, true)
+	_check(is_equal_approx(race.elapsed, 0.25) and is_equal_approx(race.boost_seconds, 0.25), "GO starts actual driving race and boost time")
+	race.reset()
+	race.begin(actor, 62.0)
+	race.advance(3.25, true)
+	_check(is_equal_approx(race.elapsed, 0.25) and is_equal_approx(race.boost_seconds, 0.25), "a straddling long frame counts only post-countdown time")
+	race.reset()
 	actor.free()
 
 
@@ -176,7 +201,7 @@ func _test_integration() -> void:
 		_check(game.apex_race.remaining() == frozen and actor.position.z == -13.0, "pause freezes race and opponent")
 		game.resume_game()
 		# No boost: the real opponent pulls away for the entire thirty seconds.
-		for tick in range(1800):
+		for tick in range(1980):
 			game._physics_process(1.0 / 60.0)
 		_check(not game.apex_race.active and game.apex_ui.notification_title.text == "APEX WINS", "Apex wins a real unboosted thirty-second race")
 		_check(game.state == game.GameState.PLAYING and game.pursuit.active == (mode == 2), "loss starts police only in Secret mode")
@@ -191,6 +216,8 @@ func _test_integration() -> void:
 		actor = game.obstacles._take_obstacle()
 		actor.activate(Vector3(-5, 0, -13), 3, 0, Models.Model.APEX)
 		game._update_apex_race(0.0)
+		for tick in range(180):
+			game._physics_process(1.0 / 60.0)
 		_key(true)
 		for tick in range(420):
 			if tick in [60, 120, 180, 240]:
@@ -229,7 +256,7 @@ func _test_integration() -> void:
 	_check(not game.apex_race.clean and game.apex_race.active, "first pothole permanently disqualifies race while ordinary driving continues")
 	game.apex_race.boost_seconds = 5.0
 	pothole_actor.position.z = 20.0
-	game._update_apex_race(30.0)
+	game._update_apex_race(33.0)
 	_check(game.apex_ui.notification_title.text == "APEX WINS", "pothole blocks reward even after recovering and finishing ahead")
 	game.return_to_menu()
 	_check(not game.apex_ui.race_panel.visible and not game.apex_ui.reward_panel.visible, "menu clears quest overlays")

@@ -56,13 +56,16 @@ var secret_escapes: int = 0
 var apex_race := RaceScript.new()
 var apex_ui: Node
 var race_random := RandomNumberGenerator.new()
+var records_recovered: bool = false
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().auto_accept_quit = false
 	run_seed = parse_run_seed(OS.get_cmdline_user_args())
-	records.load_records()
+	var records_error: Error = records.load_records()
+	if records_error in [ERR_PARSE_ERROR, ERR_FILE_CORRUPT]:
+		records_recovered = records.recover_records() == OK
 	access.load_access()
 	player_name = records.player_name
 	_load_best_score()
@@ -115,8 +118,16 @@ func _ready() -> void:
 	ui.update_hud(0, roundi(speed * 3.6))
 	ui.show_menu()
 	ui.configure_mode(selected_mode)
-	ui.configure_settings(settings.volume, settings.shake, settings.effects, settings.fullscreen)
+	ui.configure_settings(settings.volume, settings.shake, settings.effects, settings.fullscreen, settings.quality, settings.resolution)
 	_apply_settings()
+	# Official release templates disable editor script/path overrides. Package
+	# checks enter explicitly through the same shipped main scene instead.
+	if OS.get_cmdline_user_args().has("--verify-release"):
+		var verification = load("res://tests/exported_release.gd")
+		if verification == null:
+			get_tree().quit(1)
+		else:
+			add_child(verification.new())
 
 
 func _physics_process(delta: float) -> void:
@@ -214,15 +225,22 @@ func request_start_game() -> void:
 func _on_name_submitted(raw: String) -> void:
 	if state != GameState.MENU:
 		return
-	if records.normalize_name(raw).is_empty():
+	var normalized: String = records.display_player_name(raw)
+	if normalized.is_empty():
 		community.show_name_error("Enter a name with 1–24 visible characters.")
 		return
 	var saved: Error = records.save_player_name(raw)
-	if saved != OK:
-		community.show_name_error("Enter a name with 1–24 visible characters." if saved == ERR_INVALID_PARAMETER else "Your name could not be saved. Try again.")
-		return
-	player_name = records.player_name
+	if saved in [ERR_PARSE_ERROR, ERR_FILE_CORRUPT] and records.recover_records() == OK:
+		records_recovered = true
+		saved = records.save_player_name(normalized)
+	# A damaged or temporarily unwritable save must never lock the driver out.
+	player_name = normalized
 	start_game()
+	if saved != OK:
+		ui.show_feedback("DRIVING NOW  /  NAME COULD NOT BE SAVED", GameUI.ORANGE)
+	elif records_recovered:
+		ui.show_feedback("RECORDS RECOVERED  /  ORIGINAL KEPT AS BACKUP", GameUI.CYAN)
+		records_recovered = false
 
 
 func _on_secret_code_submitted(code: String) -> void:
@@ -239,6 +257,9 @@ func _on_secret_code_submitted(code: String) -> void:
 
 func _on_leaderboard_requested(mode: int, resumed: bool) -> void:
 	if state == GameState.MENU:
+		# Atomic reload keeps the last valid cache if another writer is busy or
+		# its file is unreadable, and exposes scores from other open instances.
+		records.load_records()
 		community.show_leaderboard(records.top_entries(mode, resumed), mode, resumed)
 
 
@@ -398,6 +419,7 @@ func _on_roadworks_entered() -> void:
 
 
 func _secret_impact(caption: String, points: int, speed_loss: float) -> void:
+	var was_pursuing: bool = pursuit.active
 	if apex_race.active:
 		_resolve_apex_race(false)
 	progress.apply_damage(points, speed_loss)
@@ -406,9 +428,9 @@ func _secret_impact(caption: String, points: int, speed_loss: float) -> void:
 	camera.impact()
 	audio.play_cue("pothole")
 	ui.show_feedback(caption + "  /  POLICE PURSUIT", GameUI.ORANGE)
-	if pursuit.active:
+	if was_pursuing and pursuit.active:
 		pursuit.register_mistake()
-	else:
+	elif not pursuit.active:
 		pursuit.begin(player.position)
 	if state == GameState.PLAYING:
 		audio.set_police(true)
@@ -552,7 +574,7 @@ func _resolve_apex_race(won: bool) -> void:
 
 
 func _sync_apex_ui() -> void:
-	apex_ui.update_race(apex_race.active, apex_race.remaining(), apex_race.lead_m, apex_race.boost_seconds, apex_race.clean, progress.reward_boost_remaining, apex_race.required_boost_seconds)
+	apex_ui.update_race(apex_race.active, apex_race.remaining(), apex_race.lead_m, apex_race.boost_seconds, apex_race.clean, progress.reward_boost_remaining, apex_race.required_boost_seconds, apex_race.countdown_remaining)
 	apex_ui.update_opponent(apex_race.actor if apex_race.active else null, get_world_3d(), road.materials)
 
 
@@ -663,10 +685,25 @@ func _apply_settings() -> void:
 	AudioServer.set_bus_mute(0, settings.volume <= 0.0)
 	camera.shake_strength = settings.shake
 	world.set_effects(settings.effects)
+	if settings.quality == SettingsScript.Quality.LOW:
+		world.environment.glow_enabled = false
+	get_viewport().msaa_3d = Viewport.MSAA_2X if settings.quality == SettingsScript.Quality.HIGH else Viewport.MSAA_DISABLED
 	ui.set_effects(settings.effects)
 	player.effects_strength = settings.effects
 	if DisplayServer.get_name() != "headless":
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
+		var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+		if DisplayServer.window_get_mode() != mode:
+			DisplayServer.window_set_mode(mode)
+		if settings.resolution > 0 and not settings.fullscreen:
+			var desired: Vector2i = SettingsScript.RESOLUTIONS[settings.resolution]
+			var screen := DisplayServer.window_get_current_screen()
+			var usable := DisplayServer.screen_get_usable_rect(screen)
+			var available := usable.size - Vector2i(32, 64)
+			var factor := minf(1.0, minf(float(available.x) / desired.x, float(available.y) / desired.y))
+			var size := Vector2i(Vector2(desired) * maxf(0.1, factor))
+			if DisplayServer.window_get_size() != size:
+				DisplayServer.window_set_size(size)
+				DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 
 func _update_debug() -> void:

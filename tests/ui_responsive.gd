@@ -90,6 +90,16 @@ func _run() -> void:
 		_check(ui.mode_buttons[1].button_pressed and selected.back() == 1, "Enter selects focused mode at %s" % window_size)
 	ui._open_settings(ui.menu)
 	await process_frame
+	var choices: Array[String] = []
+	ui.settings_changed.connect(func(key: String, _value: float) -> void: choices.append(key))
+	ui.quality_choice.select(0)
+	ui.quality_choice.item_selected.emit(0)
+	ui.resolution_choice.select(1)
+	ui.resolution_choice.item_selected.emit(1)
+	_check(choices == ["quality", "resolution"], "render choices emit independent setting changes")
+	var before_configure := choices.size()
+	ui.configure_settings(0.5, 0.3, 0.7, false, 2, 3)
+	_check(choices.size() == before_configure and ui.quality_choice.selected == 2 and ui.resolution_choice.selected == 3, "configure choices without spurious changes")
 	var volume_before: float = ui.settings_sliders["volume"].value
 	ui.settings_sliders["volume"].grab_focus()
 	_key(KEY_LEFT)

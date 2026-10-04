@@ -2,6 +2,8 @@ extends RefCounted
 ## Race rules use driving time and the opponent's actual world-relative position.
 
 const DURATION: float = 30.0
+const COUNTDOWN_SECONDS: float = 3.0
+const INITIAL_ACCELERATION: float = 24.0
 const MIN_BOOST_SECONDS: float = 4.0
 const MAX_BOOST_SECONDS: float = 7.0
 const POINTS: int = 20000
@@ -22,6 +24,7 @@ const ENCOUNTER_DISTANCE: float = 14.0
 
 var active: bool = false
 var elapsed: float = 0.0
+var countdown_remaining: float = 0.0
 var lead_m: float = 0.0
 var boost_seconds: float = 0.0
 var required_boost_seconds: float = MIN_BOOST_SECONDS
@@ -30,12 +33,13 @@ var actor: RoadObstacle
 var lane_target: float = 0.0
 
 
-func begin(opponent: RoadObstacle, base_speed: float, boost_requirement: float = MIN_BOOST_SECONDS) -> void:
+func begin(opponent: RoadObstacle, _base_speed: float, boost_requirement: float = MIN_BOOST_SECONDS) -> void:
 	reset()
 	required_boost_seconds = clampf(boost_requirement, MIN_BOOST_SECONDS, MAX_BOOST_SECONDS)
 	actor = opponent
 	actor.racing = true
-	actor.cruise_speed = base_speed + SPEED_ADVANTAGE
+	# Keep its real encounter speed; prepare_opponent accelerates it smoothly.
+	countdown_remaining = COUNTDOWN_SECONDS
 	lead_m = actor.position.z
 	lane_target = actor.position.x
 	active = true
@@ -47,6 +51,8 @@ func prepare_opponent(delta: float, base_speed: float, player_x: float, traffic:
 	var burst_phase := fmod(elapsed, BURST_PERIOD)
 	var bursting := burst_phase >= BURST_START and burst_phase < BURST_START + BURST_DURATION
 	var desired_speed := minf(MAX_RIVAL_SPEED, base_speed + (BURST_ADVANTAGE if bursting else SPEED_ADVANTAGE))
+	if countdown_remaining > 0.0:
+		desired_speed = minf(desired_speed, actor.cruise_speed + INITIAL_ACCELERATION * maxf(0.0, delta))
 	# Actual run speed permits close, physically clear front/rear cuts. The
 	# compatibility default remains conservative for callers without telemetry.
 	var observed_speed := player_speed if player_speed >= 0.0 else (DifficultyDirector.MAX_BOOST_SPEED if actor.position.z < 0.0 else 27.0)
@@ -151,7 +157,12 @@ func _overlap_times(start: float, end: float, extent: float) -> Vector2:
 func advance(delta: float, boosting: bool) -> int:
 	if not active:
 		return 0
-	var race_delta := minf(maxf(0.0, delta), remaining())
+	var driving_delta := maxf(0.0, delta)
+	var countdown_delta := minf(driving_delta, countdown_remaining)
+	countdown_remaining = maxf(0.0, countdown_remaining - countdown_delta)
+	if countdown_remaining < 0.000000001:
+		countdown_remaining = 0.0
+	var race_delta := minf(driving_delta - countdown_delta, remaining())
 	elapsed = minf(DURATION, elapsed + race_delta)
 	if boosting:
 		boost_seconds += race_delta
@@ -177,6 +188,7 @@ func reset() -> void:
 	actor = null
 	active = false
 	elapsed = 0.0
+	countdown_remaining = 0.0
 	lead_m = 0.0
 	boost_seconds = 0.0
 	required_boost_seconds = MIN_BOOST_SECONDS

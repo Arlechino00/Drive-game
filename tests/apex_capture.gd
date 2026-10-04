@@ -32,6 +32,7 @@ func _capture() -> void:
 	_check(game.apex_ui.opponent_road_floor.material_override == game.road.materials.road, "feed backdrop reuses actual highway material")
 	# Test fixture fuel refills stand in for already earned near-miss charge.
 	# The game's real boost input, speed, elapsed time and finish rules still run.
+	_ticks(game, 180)
 	_key(true)
 	for tick in range(420):
 		if tick in [120, 240, 360]:
@@ -61,7 +62,7 @@ func _capture() -> void:
 		_check(_feed_has_road(game.apex_ui.opponent_view), "far rival remains on rendered asphalt in feed")
 		_check((game.camera.cull_mask & game.apex_ui.FEED_ROAD_LAYER) == 0, "main camera excludes feed-only road backdrop")
 	_start_race(game, true)
-	_ticks(game, 1800)
+	_ticks(game, 1980)
 	_check(game.state == game.GameState.PLAYING and not game.apex_race.active, "unboosted Secret race ends after thirty seconds")
 	_check(game.apex_ui.notification_title.text == "APEX WINS" and game.pursuit.active, "actual Secret loss starts the moving police chase")
 	_check(game.community.rearview_panel.visible and game.apex_ui.notification_panel.visible, "Secret loss shows both police mirror and taunt")

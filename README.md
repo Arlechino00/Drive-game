@@ -6,6 +6,10 @@ A Godot 4.6 arcade endless racer: weave through futuristic traffic, avoid pothol
 
 Open `project.godot` in Godot 4.6 or newer and press **F5**, choose a mode, then choose **Start driving** or press Enter and enter your driver name. From a terminal with Godot on PATH, run `godot --path .` in this folder.
 
+Windows players can download the ZIP from [GitHub Releases](https://github.com/Arlechino00/Drive-game/releases), extract the complete folder, and run `SynthwaveDrive.exe`. Godot does not need to be installed to play an exported build.
+
+![Synthwave highway](docs/screenshots/highway.png)
+
 ## Controls
 
 | Input | Action |
@@ -20,11 +24,13 @@ Open `project.godot` in Godot 4.6 or newer and press **F5**, choose a mode, then
 | F3 | Toggle seed, difficulty wave, road section, encounter/pool counts, and FPS |
 | F8 or Ctrl+Shift+S on title | Hidden Secret Mode access dialog |
 
-Menus support mouse and keyboard focus. Settings are available from the title and pause screens. Master volume, camera shake, visual effects, and fullscreen are saved locally.
+Menus support mouse and keyboard focus. Settings are available from the title and pause screens. Master volume, camera shake, visual effects, fullscreen, render quality, and window size are saved locally. **Low** removes glow; **Balanced** keeps the original look; **High** adds 2× edge smoothing. Window choices are Current, 1280×720, 1920×1080, and 2560×1440, fitted to the usable display area. Fullscreen uses the display size. Quality choices preserve traffic visibility and collision bounds.
 
 ## Interface
 
 The interface scales with the rendered game area, keeping menus and controls readable in small windows and at high resolutions. Larger headings, mode cards, and a bright main action make the title, pause, and results screens easier to navigate. Secondary actions sit side by side, with visible keyboard focus and control hints. Driver names support up to 24 visible Unicode characters; the last name is prefilled, and restart retains the driver. Leaderboard shows the best ten drivers on this computer, with separate rankings for each mode and resumed Secret runs.
+
+Opening or switching the leaderboard refreshes scores from other open game instances. Damaged or unsupported leaderboard files are preserved as unique `.recovered-*` backups before supported records are restored. If a save cannot be written, a valid driver can still start, with a notice that the name could not be saved.
 
 The HUD gives speed the strongest emphasis, with score and combo on the left. A wider boost bar shows remaining fuel as a percentage, or an infinity symbol in Infinite Boost mode. Empty Fair fuel explains how to earn more. A pothole warning counts down the repeat-hit window, and the boost hint explains the shorter recovery period. Police results sit beside the stopped cars and clearly mark disqualified scores. Settings use clear percentage values, larger slider handles, and a high-contrast fullscreen switch. Text stays sharp as the interface scales.
 
@@ -33,6 +39,8 @@ The HUD gives speed the strongest emphasis, with score and combo on the left. A 
 The player car has a futuristic wedge body, sloped tinted canopy, round tires with five-spoke rims, slim headlights, a low aero wing, segmented rear lights, hood vents, diffuser, and hollow exhaust tips. Metallic magenta paint and cyan accents keep its silhouette distinct from traffic. Steering, body lean, and boost trails remain attached to the model.
 
 The original sySTEMatic Robotics logo appears beside the title, on the car's roof, and as the Godot application icon. Its colors, transparency, and proportions are preserved; distance filtering keeps the roof graphic stable in the chase view. The source is `logo.png`, copied unchanged from the supplied image.
+
+The project is **all rights reserved**. Official builds may be downloaded and played personally; reuse or redistribution requires permission. See [LICENSE](LICENSE) and the separate [branding notice](docs/BRANDING.md).
 
 ## Modes
 
@@ -66,13 +74,17 @@ Each model has its own width, from the 1.8 m Vector Hatch to the 3.2 m Hauler Pi
 
 ### Rare Apex race
 
-After 1,800 m, Apex has a 6% chance per eligible traffic vehicle, with at least 2,500 m between its spawns. Meeting it one car length ahead automatically shows **APEX CHALLENGES YOU** and starts a thirty-second race. A race does not start during an existing police pursuit. The actual pooled Apex accelerates to rival speed and navigates traffic with quick overtakes, tight following gaps, and three one-second speed bursts. It predicts the swept footprints using your actual speed before cutting ahead or behind, checks the center lane during wider detours, and briefly brakes when necessary before passing slower traffic. Its 66 m/s maximum burst speed leaves the player's 80 m/s boost an advantage. Countdown and lead use driving time and actual opponent position. The main camera keeps a nearby trailing rival visible; a small live Apex screen shows the real car and its distance ahead or behind even when it leaves the main view. The screen reuses one camera and viewport, which stop rendering outside the race.
+After 1,800 m, Apex has a 6% chance per eligible traffic vehicle, with at least 2,500 m between its spawns. Meeting it one car length ahead automatically shows **APEX CHALLENGES YOU**, gives a three-second countdown, then starts a thirty-second race. Driving continues during the countdown; boost spent then does not count toward the race target. A race does not start during an existing police pursuit. The actual pooled Apex accelerates smoothly from its encounter speed during the countdown and navigates traffic with quick overtakes, tight following gaps, and three one-second speed bursts. It predicts the swept footprints using your actual speed before cutting ahead or behind, checks the center lane during wider detours, and briefly brakes when necessary before passing slower traffic. Its 66 m/s maximum burst speed leaves the player's 80 m/s boost an advantage. Countdown and lead use driving time and actual opponent position. The main camera keeps a nearby trailing rival visible; a small live Apex screen shows the real car and its distance ahead or behind even when it leaves the main view. The screen reuses one camera and viewport, which stop rendering outside the race.
 
 To win, finish strictly ahead, meet a boost target randomly chosen from **four, five, six, or seven seconds total**, and hit **no potholes** during the race. The challenge and race HUD show that encounter's target and your progress. Targets replay with the run seed using a separate random stream, preserving traffic layouts. A pothole permanently marks that race failed even after recovering; ordinary damage and collision rules still apply. Fair/Secret drivers must save or earn enough fuel through near misses. Infinite Boost drivers must still engage boost. Traffic is limited to one ordinary encounter per row during the race, keeping room for the rival and an escape route.
 
 A win awards **20,000 points** and **ten seconds of unlimited boost**. Hold the usual boost input to use it; it preserves finite fuel, clears the empty-fuel input lock, and returns to earned fuel when it expires. The reward does not bypass Fair pothole recovery. Infinite Boost remains unlimited after the reward timer expires. Race, popup, and reward timers freeze while paused.
 
-A loss shows Apex's taunt. Fair/Infinite receive no additional penalty or police chase. Secret starts the existing moving police pursuit for public-road racing and speeding, without an extra collision penalty. A Secret impact during the race ends the challenge as a loss and applies its existing impact consequence. Restart/menu clear the race and its reward. Wins/losses, timer boundaries, all ten model bounds, pooled reuse, and rival lane safety are covered by dedicated tests.
+A loss shows Apex's taunt. Fair/Infinite receive no additional penalty or police chase. Secret starts the existing moving police pursuit for public-road racing and speeding, without an extra collision penalty. A Secret impact during the race ends the challenge as a loss and applies its existing impact consequence once; a newly started chase keeps its normal 64 m gap. Restart/menu clear the race and its reward. Wins/losses, timer boundaries, all ten model bounds, pooled reuse, and rival lane safety are covered by dedicated tests. Eight generated-traffic cases cover two seeds and every 4–7 second target with actual steering, finite starter fuel, legitimate close-pass refills, and enabled collisions.
+
+![Apex challenge and countdown](docs/screenshots/apex.png)
+
+![Ten traffic models](docs/screenshots/traffic-models.png)
 
 Traffic travels in its lanes at 14 m/s. Rows mix single vehicles and pairs. A common traffic speed preserves row separation; a guaranteed safe lane connects to an adjacent safe lane in the next row. Rows stay at least 64 m apart at maximum difficulty, including boost-speed play.
 
@@ -157,6 +169,16 @@ godot --path . --disable-vsync --fixed-fps 60 --script res://tests/continuous.gd
 Append `--secret --pursuit` for a 600-frame measurement with the live police mirror active throughout. That isolated mirror benchmark keeps other encounters inactive; the normal continuous checks exercise full procedural generation.
 Append `--infinite-boost --apex` for a 600-frame measurement with the live Apex screen active, including the distant-rival road backdrop. This fixture keeps other encounters inactive.
 
+For cold-start normal traffic, including lazy model construction without catalog prewarming:
+
+```text
+godot --path . --disable-vsync --fixed-fps 60 --script res://tests/continuous.gd -- --cold-benchmark
+```
+
+This draws 1,800 frames with generated traffic and writes startup time, median, 95th/99th percentile, maximum, and lazy-construction frame times to `.godot/validation/cold-benchmark.json`. It requires a renderer; headless runs cannot measure display performance. The first run on the RTX 2000 Ada at 2560×2048 had a 3.89 ms median, 5.39 ms 95th percentile, 6.22 ms 99th percentile, and 142.67 ms maximum. Nine frames built additional models, with a 6.55 ms maximum for those frames. These are a short local measurement, not a guarantee for other hardware.
+
+Pushes and pull requests run the pinned Godot 4.6.1 validation suite in GitHub Actions. Each process has a timeout. Tagged releases run validation, export Windows64, verify external and bundled event configuration plus unlock/capture/resume, and publish the tested ZIP. Build instructions are in [CONTRIBUTING.md](CONTRIBUTING.md); release notes are in [CHANGELOG.md](CHANGELOG.md).
+
 Direct checks use the normal Godot user-data folder. Prefer the Windows runner to protect personal saves, or redirect APPDATA to `.godot/validation/appdata` before running direct commands.
 
 `-Capture` renders eleven screenshots at the configured resolution in `tests/`: both mode selections, Fair gameplay and boost, Infinite Boost gameplay, city, canopy, real near-miss feedback, pause, game over, and settings. It also renders six UI states in 960×540, 1280×720, and 1920×1080 windows as `ui_*_<width>.png`, two hero views as `car_front.png` and `car_rear.png`, and three-vehicle lineups as `traffic_front.png` and `traffic_rear.png`. Six additional 1280×720 views show `pothole.png`, `pothole_warning.png`, `roadworks.png`, `police_approaching.png`, `police_roadworks.png`, and `police_crash.png`; warning and police captures are triggered by actual contacts. The ten-model contact sheet is `traffic_models.png`. Actual Apex challenge, boosted victory/reward, and Secret loss/police views are `apex_challenge.png`, `apex_win.png`, and `apex_secret_loss.png`. Rival-screen captures show far ahead, far behind, and a nearby trailing Apex as `apex_rival_ahead.png`, `apex_rival_behind.png`, and `apex_near_rival.png`. Ordinary captures contain the rendered area and exclude any side bars from the saved aspect ratio. Model-review captures use a temporary test window and fixed camera; project settings remain unchanged. Capture framing deliberately places encounters and advances sections; independent gameplay tests verify actual behavior.
@@ -165,9 +187,9 @@ Thirteen new 1280×720 captures show driver entry, access, unlocked title, Secre
 
 Background captures are `background_sunset.png`, `background_city.png`, `background_canopy.png`, `background_secret.png`, `background_effects_off.png`, and the 1920×800 `background_wide.png`. The earlier matching view is preserved as `background_before.png`. The background check exercises 200 palette/effects changes, verifies all 19 world nodes and 41 resource identities remain stable, checks mountain valleys and skyline clearance, and preserves driving lights, fog, and actual hazard materials and collision bounds.
 
-Validated on 2026-10-04 with Godot 4.6.1 and Compatibility rendering. All 35 checks passed without engine/script errors or warnings, including all ten model widths, real collision and near-miss boundaries, Apex spawn frequency and cooldown, race rules, aggressive rival safety, live opponent visibility, UI, Secret outcomes, and bounded world/pool reuse. The original seeded three-minute drives covered 11.05 km each in Fair and Secret, and 14.27 km in Infinite Boost, with at most 5,353 scene nodes and stable monitored memory. Infinite used actual held boost for 98.73% of its frames, with one brief release interval for traffic. Updated ten-model and actual Apex challenge/victory/Secret-loss captures passed and were inspected. A fresh copy containing only the staged project files passed editor import and gameplay smoke validation without local caches. Earlier swept-collision, record-recovery, unlock-recovery and score-validation fixes remain covered. Logs are in `.godot/validation/`; the driver investigation and final isolated checks are in `.godot/validation/driver-debug/`.
+Validated on 2026-10-04 with Godot 4.6.1 and Compatibility rendering. All 39 checks passed without engine/script errors or warnings, including the four audited bugs, preserved save recovery, external configuration, rendering settings, real finite-fuel Apex victories, all ten model widths, live opponent visibility, Secret outcomes, and bounded world/pool reuse. The seeded three-minute drives covered 11.05 km each in Fair and Secret, and 14.31 km in Infinite Boost, with at most 5,377 scene nodes and stable monitored memory. Infinite held actual boost for all 10,800 frames in this run. Updated settings and Apex countdown captures passed and were inspected. Independent review reran the persistence and pursuit checks. Logs are in `.godot/validation/`.
 
-The final uncapped 600-frame Secret pursuit benchmark averaged 208.8 rendered FPS on the RTX 2000 Ada laptop GPU with stable monitored memory and the shared-world rear viewport active for the whole measurement. This short measurement isolates the pursuit view; it is separate from the three-minute generation simulations and is not a real-time soak.
+An earlier uncapped 600-frame Secret pursuit benchmark averaged 208.8 rendered FPS on the RTX 2000 Ada laptop GPU with stable monitored memory and the shared-world rear viewport active throughout. This historical measurement isolates the pursuit view and predates the audit fixes. The cold normal-traffic measurement above is the current frame-time report.
 
 ## Current limits
 

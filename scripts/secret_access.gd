@@ -3,6 +3,8 @@ extends RefCounted
 
 const FORMAT_VERSION := 1
 const MAX_FILE_BYTES := 131072
+const DEFAULT_CONFIGURATION_PATH := "res://config/secret_mode.cfg"
+const EXTERNAL_CONFIGURATION_FILENAME := "secret_mode.cfg"
 
 var secret_unlocked: bool = false
 var configuration_error: String = ""
@@ -11,11 +13,31 @@ var save_path: String
 var configuration_path: String
 var _access_phrase: String = ""
 var _unlock_fingerprint: String = ""
+var _uses_default_configuration: bool = false
 
 
-func _init(storage_path: String = "user://secret_access.cfg", config_path: String = "res://config/secret_mode.cfg") -> void:
+func _init(storage_path: String = "user://secret_access.cfg", config_path: String = "") -> void:
 	save_path = storage_path
-	configuration_path = config_path
+	_uses_default_configuration = config_path.is_empty()
+	configuration_path = DEFAULT_CONFIGURATION_PATH if _uses_default_configuration else config_path
+
+
+func get_configuration_path() -> String:
+	# Re-resolve on each attempt so a loose event configuration can be edited
+	# or added while running. A present invalid file never falls back to the PCK.
+	if _uses_default_configuration and configuration_path == DEFAULT_CONFIGURATION_PATH and _is_exported_build():
+		var external := _executable_path().get_base_dir().path_join(EXTERNAL_CONFIGURATION_FILENAME)
+		if FileAccess.file_exists(external) or DirAccess.dir_exists_absolute(external):
+			return external
+	return configuration_path
+
+
+func _is_exported_build() -> bool:
+	return not OS.has_feature("editor")
+
+
+func _executable_path() -> String:
+	return OS.get_executable_path()
 
 
 func load_access() -> Error:
@@ -46,7 +68,7 @@ func validate_resume_code(code: String) -> bool:
 	# This reusable phrase has no expiry and is never consumed or rewritten.
 	resume_configuration_error = ""
 	var config := ConfigFile.new()
-	if config.load(configuration_path) != OK:
+	if config.load(get_configuration_path()) != OK:
 		resume_configuration_error = "Resume is unavailable. Ask the team."
 		return false
 	var configured: Variant = config.get_value("secret_mode", "resume_code", "")
@@ -80,7 +102,7 @@ func _load_configuration() -> Error:
 	configuration_error = ""
 	_access_phrase = ""
 	var config := ConfigFile.new()
-	var error := config.load(configuration_path)
+	var error := config.load(get_configuration_path())
 	if error != OK:
 		configuration_error = "Secret Mode access code is not configured."
 		return error
