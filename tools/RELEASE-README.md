@@ -4,6 +4,10 @@ Extract the whole ZIP into a folder, then open **SynthwaveDrive.exe**. Keep the 
 
 Choose Fair or Infinite Boost, select Start driving, and enter a driver name. Avoid traffic, potholes and closed roadwork lanes. Close passes earn boost. A rare Apex challenge rewards winning a thirty-second race with the required boost time and no potholes.
 
+Every new round starts with short English/Romanian prompts while you drive: steer, brake, use Boost, avoid one marked car and slow for a practice radar. The standard intro refers Secret questions to the sySTEMatic Robotics team. The unlocked sySTEMatic level has its own practice for steering, Boost, capture pressure and escape.
+
+Complete the practice, click/tap **Skip**, press Enter or controller A to start a clean normal run; practice does not enter the rankings. The handoff keeps the car and camera in place. Pause freezes it. **Tutorial** from the title replays the selected intro through the driver-name prompt. During paused practice, it resumes the current lesson. During a normal paused run, it resumes driving with basic controls coaching and keeps your progress when dismissed.
+
 ## Controls
 
 | Input | Action |
@@ -11,12 +15,21 @@ Choose Fair or Infinite Boost, select Start driving, and enter a driver name. Av
 | A / D or Left / Right | Steer |
 | Controller left stick | Steer |
 | Hold Shift / Space / right trigger | Boost |
+| Hold S / Down Arrow / left trigger | Brake (takes priority over boost) |
 | Escape | Pause / resume |
 | R | Restart after a crash or while paused |
-| Enter | Start from the title |
+| Enter | Start from the title; skip driving practice |
+| Controller D-pad / A / B | Navigate menus / accept or skip / back |
+| Controller Start | Pause / resume |
 | F8 or Ctrl+Shift+S on the title | Secret Mode code entry |
 
 Settings are available from the title and pause screens. Preferences, local records and driver names are saved on this computer in `%APPDATA%\Godot\app_userdata\Synthwave Drive`. Keyboard, mouse and controller input work in menus.
+
+Choose English or Română from the title or Settings; the choice is saved. Cruise speed keeps increasing during long runs. Radar warnings allow braking distance, and speeding at a camera deducts score and raises police Heat. Arrest requires sustained capture pressure; create real separation and clear the escape meter to evade, using steering, traffic or optional Boost. Camera-free sectors allow speeding without a fine.
+
+Switching away from the game pauses it; returning leaves it paused until you resume. Valid ranked rounds save on game over, Menu, Restart and Quit. Extended crawling outside radar approaches, posted-limit sectors and damage recovery has a twenty-second grace period, then leaves that round outside the rankings. A warning and persistent badge explain this; driving and Boost remain available. Five seconds at normal pace restores the grace timer before it expires. Legal radar braking stays ranked.
+
+Results and settings show a notice if saving fails. Damaged records are backed up before recovery. See [save recovery instructions](docs/local-event-setup.md) if a legacy save lock prevents saving.
 
 ## Local event codes
 

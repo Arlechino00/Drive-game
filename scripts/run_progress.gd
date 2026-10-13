@@ -22,6 +22,9 @@ var combo_remaining: float = 0.0
 var boost_empty_lock: bool = false
 var infinite_boost: bool = false
 var score_valid: bool = true
+var ranked_eligible: bool = true
+var slow_seconds: float = 0.0
+var pace_recovery_seconds: float = 0.0
 var score_penalty: int = 0
 var pothole_remaining: float = 0.0
 var damage_remaining: float = 0.0
@@ -43,6 +46,9 @@ func reset(unlimited: bool = false) -> void:
 	combo_remaining = 0.0
 	boost_empty_lock = false
 	score_valid = true
+	ranked_eligible = true
+	slow_seconds = 0.0
+	pace_recovery_seconds = 0.0
 	score_penalty = 0
 	pothole_remaining = 0.0
 	damage_remaining = 0.0
@@ -51,15 +57,30 @@ func reset(unlimited: bool = false) -> void:
 	unlimited_this_tick = false
 
 
-func advance(delta: float, distance_delta: float, speed: float) -> void:
+func advance(delta: float, distance_delta: float, speed: float, risk: float = 1.0) -> void:
 	pothole_remaining = _advance_timer(pothole_remaining, delta)
 	damage_remaining = _advance_timer(damage_remaining, delta)
 	combo_remaining = maxf(0.0, combo_remaining - delta)
 	if is_zero_approx(combo_remaining):
 		multiplier = 1.0
 	# Survival stays the main score source; risky chains add a modest distance bonus.
-	distance_points += distance_delta * 10.0 * (1.0 + (multiplier - 1.0) * 0.1)
+	distance_points += distance_delta * 10.0 * (1.0 + (multiplier - 1.0) * 0.1) * maxf(1.0, risk)
 	top_speed = maxf(top_speed, speed)
+
+
+func track_ranked_pace(delta: float, speed: float, base_speed: float, exempt: bool) -> void:
+	if not ranked_eligible or exempt:
+		return
+	if speed < minf(20.0, base_speed * 0.55):
+		slow_seconds += maxf(0.0, delta)
+		pace_recovery_seconds = 0.0
+		if slow_seconds >= 20.0:
+			ranked_eligible = false
+	else:
+		# A brief brake release cannot erase accumulated crawling time.
+		pace_recovery_seconds += maxf(0.0, delta)
+		if pace_recovery_seconds >= 5.0:
+			slow_seconds = 0.0
 
 
 func _advance_timer(remaining: float, delta: float) -> float:

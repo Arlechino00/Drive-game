@@ -68,7 +68,7 @@ func _check_seams(road: RoadManager) -> void:
 	for index in range(1, positions.size()):
 		_check(absf(positions[index] - positions[index - 1] - 40.0) < 0.001, "road seams")
 	_check(positions[0] < -200.0 and positions[-1] >= 0.0, "player and horizon covered")
-	_check(road.segments.size() == 9, "nine road segments")
+	_check(road.segments.size() == road.SEGMENT_COUNT, "fixed road segment budget covers high-speed look-ahead")
 
 
 func _node_count(node: Node) -> int:

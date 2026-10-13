@@ -1,6 +1,8 @@
 class_name CommunityUI
 extends Node
 
+const L = preload("res://scripts/localization.gd")
+
 signal name_submitted(name: String)
 signal secret_code_submitted(code: String)
 signal resume_code_submitted(code: String)
@@ -21,6 +23,11 @@ var leaderboard_empty: Label
 var rearview_panel: PanelContainer
 var rearview_image: TextureRect
 var pursuit_caption: Label
+var capture_meter: ProgressBar
+var capture_label: Label
+var _last_pursuit: Array = [false, 0.0, 0.0, 5.0, false]
+var _heat: int = 0
+var _capture: float = 0.0
 
 var _ui: GameUI
 var _modal: ColorRect
@@ -37,21 +44,25 @@ func attach(base_ui: GameUI) -> void:
 		return
 	_ui = base_ui
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	name_dialog = _dialog("DriverNameDialog", "Your driver name", "Up to 24 characters. Your best runs stay on this computer.", GameUI.CYAN)
-	name_input = _text_field(name_dialog, "Driver name", false, 24)
+	name_dialog = _dialog("DriverNameDialog", L.text("ui.your_driver_name"), L.text("community.driver_detail_mobile" if _ui.mobile_mode else "community.driver_detail_desktop"), GameUI.CYAN)
+	name_input = _text_field(name_dialog, L.text("ui.driver_name"), false, 24)
+	name_input.text_submitted.connect(func(_text: String) -> void: _submit_name())
 	_add_error(name_dialog)
-	_actions(name_dialog, "Start driving", _submit_name)
-	access_dialog = _dialog("SecretAccessDialog", "sySTEMatic Secret", "Enter the access code from the sySTEMatic Robotics team.", GameUI.MAGENTA)
-	access_input = _text_field(access_dialog, "Access code", true)
+	_actions(name_dialog, L.text("ui.start_driving"), _submit_name)
+	access_dialog = _dialog("SecretAccessDialog", L.text("ui.systematic_secret"), L.text("ui.enter_the_access_code_from_the_systematic_robotics_team"), GameUI.MAGENTA)
+	access_input = _text_field(access_dialog, L.text("ui.access_code"), true)
+	access_input.text_submitted.connect(func(text: String) -> void: secret_code_submitted.emit(text))
 	_add_error(access_dialog)
-	_actions(access_dialog, "Unlock Secret", func() -> void: secret_code_submitted.emit(access_input.text))
-	bribe_dialog = _dialog("BribeResumeDialog", "Bribe / resume", "Like a sySTEMatic Robotics post, then ask the team for the resume code.\nOne continuation per run. Resumed runs have their own ranking.", GameUI.ORANGE)
-	bribe_input = _text_field(bribe_dialog, "Resume code", true)
+	_actions(access_dialog, L.text("ui.unlock_secret"), func() -> void: secret_code_submitted.emit(access_input.text))
+	bribe_dialog = _dialog("BribeResumeDialog", L.text("ui.bribe_resume"), L.text("ui.like_a_systematic_robotics_post_then_ask_the_team_for_the_resume_"), GameUI.ORANGE)
+	bribe_input = _text_field(bribe_dialog, L.text("ui.resume_code"), true)
+	bribe_input.text_submitted.connect(func(text: String) -> void: resume_code_submitted.emit(text))
 	_add_error(bribe_dialog)
-	_actions(bribe_dialog, "Resume driving", func() -> void: resume_code_submitted.emit(bribe_input.text))
+	_actions(bribe_dialog, L.text("ui.resume_driving"), func() -> void: resume_code_submitted.emit(bribe_input.text))
 	_build_leaderboard()
 	_build_rearview()
-	resume_button = _ui._make_button("Bribe / resume")
+	_ui.language_changed.connect(_refresh_language)
+	resume_button = _ui._make_button(L.text("ui.bribe_resume"))
 	resume_button.name = "BribeResumeOffer"
 	resume_button.visible = false
 	resume_button.pressed.connect(_request_resume)
@@ -117,7 +128,11 @@ func show_leaderboard(entries: Array[Dictionary], mode: int, resumed: bool = fal
 		var rank := _ui._make_label("%d" % (index + 1), 22, GameUI.MUTED)
 		rank.custom_minimum_size.x = 32
 		row.add_child(rank)
-		var driver := _ui._make_label(str(entries[index].get("name", "Driver")), 22, GameUI.WHITE)
+		var driver := _ui._make_label(str(entries[index].get("name", L.text("ui.driver"))), 22, GameUI.WHITE)
+		# A driver's literal name must never be treated as interface copy, even
+		# when the name happens to equal a translated word such as "Fair".
+		if entries[index].has("name") and driver.has_meta("locale_text"):
+			driver.remove_meta("locale_text")
 		driver.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		driver.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		driver.custom_minimum_size.x = 180
@@ -128,7 +143,9 @@ func show_leaderboard(entries: Array[Dictionary], mode: int, resumed: bool = fal
 		row.add_child(score)
 		row.set_meta("name_label", driver)
 		row.set_meta("score_label", score)
-		row.tooltip_text = "%s · %.2f km · %d escapes" % [driver.text, float(entries[index].get("distance", 0.0)) / 1000.0, int(entries[index].get("escapes", 0))]
+		row.set_meta("distance", float(entries[index].get("distance", 0.0)))
+		row.set_meta("escapes", int(entries[index].get("escapes", 0)))
+		row.tooltip_text = L.text("ui.s_2f_km_d_escapes") % [driver.text, float(entries[index].get("distance", 0.0)) / 1000.0, int(entries[index].get("escapes", 0))]
 	_open(leaderboard_dialog, leaderboard_tabs[_leaderboard_mode])
 
 
@@ -136,9 +153,20 @@ func set_rearview_texture(texture: Texture2D) -> void:
 	rearview_image.texture = texture
 
 
-func update_pursuit(active: bool, gap_m: float, clean_seconds: float) -> void:
+func update_pursuit(active: bool, gap_m: float, clean_seconds: float, duration: float = 5.0, timed: bool = false) -> void:
+	_last_pursuit[0] = active
+	_last_pursuit[1] = gap_m
+	_last_pursuit[2] = clean_seconds
+	_last_pursuit[3] = duration
+	_last_pursuit[4] = timed
 	rearview_panel.visible = active and _ui.hud.visible and _modal == null
-	pursuit_caption.text = "POLICE %dm  ·  Clean %d/16s" % [roundi(maxf(0.0, gap_m)), floori(clampf(clean_seconds, 0.0, 16.0))]
+	capture_meter.visible = active
+	capture_label.visible = active
+	var target := maxf(0.0, duration)
+	if timed:
+		pursuit_caption.text = L.text("ui.police_dm_escape_in_ds") % [roundi(maxf(0.0, gap_m)), ceili(maxf(0.0, target - clean_seconds))]
+	else:
+		pursuit_caption.text = L.text("police.escape_progress") % [roundi(maxf(0.0, gap_m)), floori(clampf(clean_seconds, 0.0, target)), ceili(target)]
 
 
 func dismiss() -> void:
@@ -169,10 +197,10 @@ func _dialog(node_name: String, title: String, detail: String, accent: Color) ->
 
 func _text_field(dialog: ColorRect, placeholder: String, private_code: bool, max_length: int = 128) -> LineEdit:
 	var field := LineEdit.new()
-	field.placeholder_text = placeholder
+	L.bind(field, "placeholder_text", placeholder)
 	field.secret = private_code
 	field.max_length = max_length
-	field.custom_minimum_size.y = 56
+	field.custom_minimum_size.y = 76 if _ui.mobile_mode else 56
 	field.add_theme_font_size_override("font_size", 25)
 	field.add_theme_color_override("font_color", GameUI.WHITE)
 	field.add_theme_color_override("font_placeholder_color", GameUI.MUTED)
@@ -192,12 +220,12 @@ func _add_error(dialog: ColorRect) -> void:
 
 func _actions(dialog: ColorRect, primary: String, submit: Callable) -> void:
 	_ui._add_button(dialog, primary, submit, true)
-	_ui._add_button(dialog, "Cancel", dismiss)
-	_ui._add_footer(dialog, "Enter  ·  Confirm       Esc  ·  Cancel")
+	_ui._add_button(dialog, L.text("ui.cancel"), dismiss)
+	_ui._add_footer(dialog, L.text("ui.tap_confirm_or_use_the_keyboard_s_done_key") if _ui.mobile_mode else L.text("ui.enter_confirm_esc_cancel"))
 
 
 func _build_leaderboard() -> void:
-	leaderboard_dialog = _dialog("LeaderboardDialog", "Leaderboard", "On this computer  ·  Best score per driver", GameUI.CYAN)
+	leaderboard_dialog = _dialog("LeaderboardDialog", L.text("ui.leaderboard"), L.text("community.leaderboard_detail_mobile" if _ui.mobile_mode else "community.leaderboard_detail_desktop"), GameUI.CYAN)
 	var panel: PanelContainer = leaderboard_dialog.get_meta("panel")
 	panel.custom_minimum_size.x = 950
 	panel.add_theme_stylebox_override("panel", _ui._panel_style(Color("#101124"), Color(GameUI.CYAN, 0.48), 1, 6, 24))
@@ -210,8 +238,8 @@ func _build_leaderboard() -> void:
 	column.add_child(tabs)
 	var group := ButtonGroup.new()
 	for mode in range(3):
-		var button := _ui._make_button(["Fair", "Infinite Boost", "Secret"][mode])
-		button.custom_minimum_size.y = 48
+		var button := _ui._make_button([L.text("ui.fair"), L.text("ui.infinite_boost"), L.text("ui.secret")][mode])
+		button.custom_minimum_size.y = 76 if _ui.mobile_mode else 48
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.toggle_mode = true
 		button.button_group = group
@@ -222,9 +250,9 @@ func _build_leaderboard() -> void:
 		tabs.add_child(button)
 		leaderboard_tabs.append(button)
 	resumed_filter = CheckButton.new()
-	resumed_filter.text = "Resumed Secret runs"
-	resumed_filter.custom_minimum_size.y = 40
-	resumed_filter.add_theme_font_size_override("font_size", 22)
+	L.bind(resumed_filter, "text", L.text("ui.resumed_secret_runs"))
+	resumed_filter.custom_minimum_size.y = 76 if _ui.mobile_mode else 40
+	resumed_filter.add_theme_font_size_override("font_size", 25 if _ui.mobile_mode else 22)
 	resumed_filter.add_theme_color_override("font_color", GameUI.WHITE)
 	resumed_filter.add_theme_icon_override("checked", _ui._toggle_icon(true))
 	resumed_filter.add_theme_icon_override("unchecked", _ui._toggle_icon(false))
@@ -235,24 +263,24 @@ func _build_leaderboard() -> void:
 	column.add_child(resumed_filter)
 	var table_header := HBoxContainer.new()
 	column.add_child(table_header)
-	var names := _ui._make_label("DRIVER", 20, GameUI.MUTED)
+	var names := _ui._make_label(L.text("ui.driver_alt"), 20, GameUI.MUTED)
 	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	table_header.add_child(names)
-	table_header.add_child(_ui._make_label("BEST SCORE", 20, GameUI.MUTED))
+	table_header.add_child(_ui._make_label(L.text("ui.best_score"), 20, GameUI.MUTED))
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size.y = 340
+	scroll.custom_minimum_size.y = 280 if _ui.mobile_mode else 340
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	column.add_child(scroll)
 	var contents := VBoxContainer.new()
 	contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(contents)
-	leaderboard_empty = _ui._make_label("No runs yet. Start driving to set the first score.", 22, GameUI.MUTED)
+	leaderboard_empty = _ui._make_label(L.text("ui.no_runs_yet_start_driving_to_set_the_first_score"), 22, GameUI.MUTED)
 	leaderboard_empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	contents.add_child(leaderboard_empty)
 	leaderboard_rows = VBoxContainer.new()
 	leaderboard_rows.add_theme_constant_override("separation", 2)
 	contents.add_child(leaderboard_rows)
-	_ui._add_button(leaderboard_dialog, "Back", dismiss)
+	_ui._add_button(leaderboard_dialog, L.text("ui.back"), dismiss)
 	leaderboard_dialog.set_meta("first_button", leaderboard_tabs[0])
 
 
@@ -278,16 +306,28 @@ func _build_rearview() -> void:
 	rearview_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rearview_image.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(rearview_image)
-	pursuit_caption = _ui._make_label("POLICE", 22, GameUI.ORANGE)
+	pursuit_caption = _ui._make_label(L.text("ui.police"), 22, GameUI.ORANGE)
 	pursuit_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(pursuit_caption)
+	capture_label = _ui._make_label("", 18, GameUI.ORANGE)
+	capture_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	capture_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(capture_label)
+	capture_meter = ProgressBar.new()
+	capture_meter.custom_minimum_size.y = 8
+	capture_meter.show_percentage = false
+	capture_meter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	capture_meter.add_theme_stylebox_override("background", _ui._panel_style(GameUI.INK, GameUI.MUTED, 1, 3))
+	capture_meter.add_theme_stylebox_override("fill", _ui._panel_style(GameUI.ORANGE, GameUI.ORANGE, 0, 3))
+	content.add_child(capture_meter)
 	rearview_panel.visible = false
+	update_capture(0, 0.0)
 
 
 func _submit_name() -> void:
 	var value := name_input.text.strip_edges()
 	if value.is_empty():
-		show_name_error("Enter a driver name to start.")
+		show_name_error(L.text("ui.enter_a_driver_name_to_start"))
 		return
 	name_submitted.emit(value)
 
@@ -326,7 +366,7 @@ func _clear_error(dialog: ColorRect) -> void:
 
 func _error(dialog: ColorRect, message: String, field: LineEdit) -> void:
 	var label: Label = dialog.get_meta("error")
-	label.text = message
+	L.bind(label, "text", L.translate_message(message))
 	label.visible = not message.is_empty()
 	if dialog.visible:
 		field.grab_focus()
@@ -351,13 +391,27 @@ func _score_text(score: int) -> String:
 
 
 func _input(event: InputEvent) -> void:
-	if not is_modal_open() or not event is InputEventKey:
+	if not is_modal_open():
 		return
-	if event.keycode == KEY_ESCAPE:
-		if event.pressed and not event.echo:
-			dismiss()
+	if event.is_action_pressed("ui_cancel"):
+		dismiss()
 		get_viewport().set_input_as_handled()
-	elif _modal == leaderboard_dialog and event.keycode in [KEY_LEFT, KEY_RIGHT]:
+		return
+	if event is InputEventJoypadButton:
+		if event.is_action_pressed("ui_accept"):
+			var focused := get_viewport().gui_get_focus_owner()
+			if focused in [name_input, access_input, bribe_input]:
+				if _modal == name_dialog:
+					_submit_name()
+				elif _modal == access_dialog:
+					secret_code_submitted.emit(access_input.text)
+				elif _modal == bribe_dialog:
+					resume_code_submitted.emit(bribe_input.text)
+				get_viewport().set_input_as_handled()
+		return
+	if not event is InputEventKey:
+		return
+	if _modal == leaderboard_dialog and event.keycode in [KEY_LEFT, KEY_RIGHT]:
 		var tab_index := leaderboard_tabs.find(get_viewport().gui_get_focus_owner())
 		if tab_index >= 0:
 			if event.pressed:
@@ -384,3 +438,20 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	# Leave focus navigation to Godot's viewport after unhandled key input.
 	if is_modal_open() and event is InputEventKey and event.keycode not in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_TAB]:
 		get_viewport().set_input_as_handled()
+
+
+func update_capture(heat: int, capture: float) -> void:
+	_heat = maxi(0, heat)
+	_capture = clampf(capture, 0.0, 1.0)
+	capture_meter.value = _capture * 100.0
+	capture_label.text = L.text("police.capture_critical" if _capture >= 0.75 else "police.capture", [_heat, roundi(_capture * 100.0)])
+	capture_label.add_theme_color_override("font_color", GameUI.MAGENTA if _capture >= 0.75 else GameUI.ORANGE)
+
+
+func _refresh_language() -> void:
+	if not _last_pursuit.is_empty():
+		update_pursuit.callv(_last_pursuit)
+	update_capture(_heat, _capture)
+	for row in leaderboard_rows.get_children():
+		var driver: Label = row.get_meta("name_label")
+		row.tooltip_text = L.text("ui.s_2f_km_d_escapes") % [driver.text, float(row.get_meta("distance")) / 1000.0, int(row.get_meta("escapes"))]

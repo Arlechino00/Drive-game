@@ -3,14 +3,15 @@ extends RefCounted
 ## Immutable meshes and paint materials are shared by every pooled instance.
 
 const VehicleMesh = preload("res://scripts/vehicle_mesh.gd")
-enum Model { PULSE, RELAY, SOLAR, TORQUE, VECTOR, ATLAS, NOMAD, HAULER, APEX, EXECUTIVE }
-const COUNT: int = 10
-const NAMES: Array[String] = ["Pulse Coupe", "Relay Van", "Solar GT", "Torque Muscle", "Vector Hatch", "Atlas SUV", "Nomad Wagon", "Hauler Pickup", "Apex Supercar", "Executive Sedan"]
-const COLORS: Array[String] = ["#307db4", "#7541ad", "#b78239", "#a83c46", "#238a91", "#468553", "#d9e0db", "#bd6435", "#9da9bb", "#554071"]
+const Tuning = preload("res://scripts/stage_two_tuning.gd")
+enum Model { PULSE, RELAY, SOLAR, TORQUE, VECTOR, ATLAS, NOMAD, HAULER, APEX, EXECUTIVE, MOTO }
+const COUNT: int = 11
+const NAMES: Array[String] = ["Pulse Coupe", "Relay Van", "Solar GT", "Torque Muscle", "Vector Hatch", "Atlas SUV", "Nomad Wagon", "Hauler Pickup", "Apex Supercar", "Executive Sedan", "Street Moto"]
+const COLORS: Array[String] = ["#307db4", "#7541ad", "#b78239", "#a83c46", "#238a91", "#468553", "#d9e0db", "#bd6435", "#9da9bb", "#554071", "#e8419a"]
 # CAR=1, VAN=2, WIDE=3 retain their height/length categories.
 # Each model has its own visible and physical width; the original three stay unchanged.
-const KINDS: Array[int] = [1, 2, 3, 3, 1, 2, 2, 2, 3, 3]
-const WIDTHS: Array[float] = [2.0, 2.4, 2.8, 3.1, 1.8, 3.0, 2.3, 3.2, 2.6, 2.7]
+const KINDS: Array[int] = [1, 2, 3, 3, 1, 2, 2, 2, 3, 3, 1]
+const WIDTHS: Array[float] = [2.0, 2.4, 2.8, 3.1, 1.8, 3.0, 2.3, 3.2, 2.6, 2.7, 0.9]
 static var _materials: Dictionary = {}
 
 
@@ -30,11 +31,17 @@ static func dimensions(model: int) -> Vector3:
 	model = clampi(model, 0, COUNT - 1)
 	var size: Vector3 = [Vector3(2.0, 1.05, 4.4), Vector3(2.4, 1.9, 5.0), Vector3(2.8, 1.4, 4.8)][kind_for_model(model) - 1]
 	size.x = WIDTHS[model]
+	if model == Model.MOTO:
+		size = Vector3(WIDTHS[model], 1.75, 2.2)
+	size.x *= Tuning.TRAFFIC_SCALE
+	size.z *= Tuning.TRAFFIC_SCALE
 	return size
 
 
 static func build(model: int) -> Node3D:
 	model = clampi(model, 0, COUNT - 1)
+	if model == Model.MOTO:
+		return _build_moto()
 	var visual := Node3D.new()
 	visual.name = ["CarVisual", "VanVisual", "WideVisual"][model] if model < 3 else NAMES[model].replace(" ", "") + "Visual"
 	visual.set_meta("traffic_model", model)
@@ -161,6 +168,39 @@ static func build(model: int) -> Node3D:
 		VehicleMesh.box(visual, "ApexRearWing", Vector3(0, 1.13, 1.91), Vector3(2.30 * detail_scale, 0.085, 0.35), dark)
 	elif model == Model.EXECUTIVE:
 		VehicleMesh.box(visual, "ChromeRearTrim", Vector3(0, 0.65, tip + 0.008), Vector3(2.0 * detail_scale, 0.025, 0.026), metal)
+	return visual
+
+
+static func _build_moto() -> Node3D:
+	# Motorcycle and rider; the rear (tail light) faces +Z toward the player.
+	var visual := Node3D.new()
+	visual.name = "StreetMotoVisual"
+	visual.set_meta("traffic_model", Model.MOTO)
+	var tip := dimensions(Model.MOTO).z * 0.5
+	var paint := _material(COLORS[Model.MOTO], 0.05)
+	var dark := _material("#101426", 0.0)
+	var rubber := _material("#070a12", 0.0)
+	var jacket := _material("#1b2238", 0.0)
+	var skin := _material("#c8906a", 0.0)
+	var helmet := _material("#42bacc", 0.65)
+	for axle in [-tip + 0.36, tip - 0.36]:
+		var wheel := VehicleMesh.cylinder(visual, "MotoWheel", Vector3(0, 0.36, axle), 0.34, 0.16, rubber)
+		wheel.rotation.z = PI * 0.5
+	VehicleMesh.box(visual, "MotoFrame", Vector3(0, 0.62, 0), Vector3(0.34, 0.36, tip * 1.3), dark)
+	VehicleMesh.box(visual, "MotoTank", Vector3(0, 0.88, -0.28), Vector3(0.44, 0.26, 0.62), paint)
+	VehicleMesh.box(visual, "MotoFairing", Vector3(0, 0.96, -tip + 0.42), Vector3(0.5, 0.42, 0.3), paint)
+	VehicleMesh.box(visual, "MotoSeat", Vector3(0, 0.84, 0.32), Vector3(0.36, 0.1, 0.62), dark)
+	VehicleMesh.box(visual, "MotoTail", Vector3(0, 0.8, tip - 0.2), Vector3(0.3, 0.07, 0.04), _material("#ff355d", 2.1))
+	VehicleMesh.box(visual, "MotoHeadlight", Vector3(0, 1.0, -tip + 0.26), Vector3(0.22, 0.1, 0.03), _material("#d9f9ff", 1.5))
+	# Rider: legs, leaning torso, arms to the bars, helmeted head.
+	for side in [-1.0, 1.0]:
+		VehicleMesh.box(visual, "RiderLeg", Vector3(side * 0.22, 0.72, 0.12), Vector3(0.14, 0.42, 0.5), jacket)
+		var arm := VehicleMesh.box(visual, "RiderArm", Vector3(side * 0.26, 1.22, -0.32), Vector3(0.1, 0.1, 0.55), jacket)
+		arm.rotation.x = 0.45
+		VehicleMesh.box(visual, "RiderHand", Vector3(side * 0.26, 1.08, -0.6), Vector3(0.1, 0.09, 0.1), skin)
+	var torso := VehicleMesh.box(visual, "RiderTorso", Vector3(0, 1.28, 0.12), Vector3(0.48, 0.62, 0.3), jacket)
+	torso.rotation.x = -0.5
+	VehicleMesh.cylinder(visual, "RiderHelmet", Vector3(0, 1.62, -0.06), 0.16, 0.3, helmet).rotation.x = PI * 0.5
 	return visual
 
 

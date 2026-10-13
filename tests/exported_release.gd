@@ -18,6 +18,15 @@ func _run() -> void:
 	var access_code := bundled_access if fallback else "RELEASE-ACCESS"
 	var resume_code := bundled_resume if fallback else "RELEASE-RESUME"
 	var game = get_parent()
+	game.ui.configure_language(1)
+	_check(game.ui.language_choice.selected == 1 and "Limbă" == load("res://scripts/localization.gd").text("settings.language"), "Romanian dictionaries are bundled and live")
+	game.start_game()
+	_check(game.tutorial.active and "Virează" in game.tutorial.caption.text, "exported live Romanian tutorial starts automatically")
+	game.tutorial.skip_button.pressed.emit()
+	_check(not game.tutorial.active and game.progress.score_valid, "exported Skip enters a normal scoring run")
+	game.return_to_menu()
+	game.ui.configure_language(0)
+	game.tutorial_enabled = false
 	# Keep the verifier alive while explicitly closing the actual game tree.
 	reparent(get_tree().root)
 	await get_tree().process_frame
@@ -32,13 +41,23 @@ func _run() -> void:
 	else:
 		game._on_secret_code_submitted(access_code)
 		_check(game.access.secret_unlocked and game.selected_mode == 2, "exported title unlock selects Secret")
+		game.tutorial_enabled = true
 		_check(not game.access.validate_resume_code("wrong"), "incorrect resume rejected")
 		game._on_name_submitted("Release Test")
+		_check(game.tutorial.active and game.tutorial.secret_guide, "exported sySTEMatic live introduction starts")
+		game.tutorial.skip_button.pressed.emit()
+		game.tutorial_enabled = false
 		_check(game.state == game.GameState.PLAYING and game.run_mode == 2, "exported Secret driving starts")
 		for hit in range(6):
 			if game.state != game.GameState.PLAYING:
 				break
 			game._on_player_hit()
+		_check(game.state == game.GameState.PLAYING, "exported police contacts do not arrest instantly")
+		game.pursuit.set_heat(0)
+		game.pursuit.begin(game.player.position)
+		game.pursuit.gap_m = 4.0
+		game.pursuit.units[0].speed = 0.0
+		game.pursuit.advance(6.0, game.player.position, 0.0, 45.0)
 		_check(game.state == game.GameState.GAME_OVER, "exported police capture ends driving")
 		game.aftermath.advance(4.0)
 		await get_tree().process_frame

@@ -31,3 +31,15 @@ The build uses fresh staged source, bundles `config/*.cfg`, copies editable `sec
 Official release templates disable script/scene path overrides. The explicit internal `-- --verify-release` flag runs checks against the normal shipped main scene; the packaging tool always isolates its saves and requires a pass marker. Use `tools/verify-release.ps1 -PackagePath 'path/to/package.zip'` to repeat that check safely.
 
 Tag pushes matching `v*` validate, package and publish the Windows ZIP. Manual release workflow runs produce a downloadable artifact without creating a release. Do not tag a release until the headless suite, affected rendered checks and package verification pass.
+
+## Android test build
+
+Use Godot 4.6.1, JDK 17 and Android SDK build-tools 35.0.1. The Android preset preserves the Windows preset and exports a direct-install debug APK for ARM64 and ARMv7. The helper uses fresh staged source and isolated editor preferences; it does not modify global editor settings.
+
+```powershell
+./tools/build-android.ps1 -GodotPath './.godot/tools/Godot_v4.6.1-stable_win64_console.exe' -JavaSdkPath 'C:/Program Files/Microsoft/jdk-17.0.20.101-hotspot'
+```
+
+The default SDK location is `$env:LOCALAPPDATA/Android/Sdk`; supply `-AndroidSdkPath` for another location. `-TemplatePath` accepts extracted Godot 4.6.1 templates. If the Android template is absent, the helper extracts it from the cached official `.godot/tools/Godot_v4.6.1-stable_export_templates.tpz` after checking its official SHA512 hash. It verifies engine/template/JDK versions, export logs, signature, package identifier, native architectures, bundled configuration/notices and 16 KB ZIP alignment. Output is `.godot/releases/Android/SynthwaveDrive.apk` with a SHA256 sidecar. `-OutputPath` changes the path; `-IncludeEmulatorArchitecture` adds x86_64 for emulator testing.
+
+The local debug key is kept in ignored `.godot/tools/android-debug.keystore` so successive test APKs can update one another. This is a direct-test build; store distribution requires separate production signing and a store package. Android saves/configuration stay in the app's private storage; event codes are bundled at build time. The touch interface can be previewed on desktop with `godot --path . -- --mobile-controls`. Check native Android keyboard, Back, app switching and graphics on an emulator/device as well as running the automated suite.

@@ -11,9 +11,16 @@ func _run() -> void:
 	for seed_id in [4, 12]:
 		for required in range(4, 8):
 			game.run_seed = seed_id
-			game.start_game()
+			game.start_game(false)
+			# Isolate generated finite-fuel race play from radar interruption.
+			game.enforcement.sector_at = INF
+			game.enforcement.radar_at = INF
+			game.enforcement.sector_end = INF
 			game.distance = 2000.0
-			game.speed = game.director.MAX_CRUISE_SPEED
+			# Race at the former cruising pace on the continuous Stage Two curve.
+			# Distance alone no longer implies a max-speed plateau.
+			game.run_seconds = 630.0
+			game.speed = game.director.get_base_speed(game.distance, game.run_seconds)
 			var actor := game.obstacles._take_obstacle() as RoadObstacle
 			actor.activate(Vector3(-5, 0, -13), RoadObstacle.Kind.WIDE, game.player.position.x, Models.Model.APEX)
 			game._update_apex_race(0.0)
@@ -46,7 +53,7 @@ func _run() -> void:
 			_check(game.progress.damage_remaining == 0.0 and not game.pursuit.active, "clean generated race survives real contacts")
 			_check(driving_frames == 1980 and actor.position.z > 0.0, "generated win retains exactly three countdown plus thirty race seconds and a real positive lead")
 			_check(is_equal_approx(game.progress.reward_boost_remaining, 10.0) and game.progress.bonus_points >= 20000, "generated win grants its actual ten-second reward and points")
-			print("GENERATED APEX seed=%d target=%d result=%s boost=%.2f nearpasses=%d fuel=%.3f points=%d" % [seed_id, required, game.apex_ui.notification_title.text, max_boost, game.progress.near_misses, game.progress.boost_charge, game.progress.bonus_points])
+			print("GENERATED APEX seed=%d target=%d result=%s boost=%.2f nearpasses=%d fuel=%.3f points=%d frames=%d lead=%.2f state=%d end=%s" % [seed_id, required, game.apex_ui.notification_title.text, max_boost, game.progress.near_misses, game.progress.boost_charge, game.progress.bonus_points, driving_frames, actor.position.z, game.state, game.end_reason])
 	game.return_to_menu()
 	game.audio.stop_all()
 	var drain_until := Time.get_ticks_msec() + 150

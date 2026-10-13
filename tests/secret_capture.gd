@@ -58,26 +58,31 @@ func _capture() -> void:
 	game.player.active = false
 	_check(game.pursuit.active and game.community.rearview_panel.visible, "repeat impacts leave a visible closer police car")
 	await _save("secret_pursuit_close.png")
-	# Start another real chase, then allow normal clean recovery through escape.
+	# A visibly separated pursuit must disengage for five seconds after pressure decays.
 	game.set_physics_process(true)
 	_start_clear(game)
 	game.obstacles._take_obstacle().activate(Vector3.ZERO, RoadObstacle.Kind.ROADWORKS)
 	await _frames(4)
-	for frame in range(1100):
-		await process_frame
-		if not game.pursuit.active:
-			break
-	_check(game.secret_escapes == 1 and game.state == game.GameState.PLAYING, "clean driving escapes")
+	game.set_physics_process(false)
+	game.player.active = false
+	for unit in game.pursuit.units:
+		unit.z = 240.0
+		unit.speed = 62.0
+	game.pursuit.advance(game.pursuit.clean_escape_seconds + 0.2, game.player.position, 62.0, 62.0)
+	await _frames(3)
+	_check(game.secret_escapes == 1 and game.state == game.GameState.PLAYING, "real separation and sustained disengagement escape")
 	await _save("secret_escape.png")
 	_start_clear(game)
 	game.progress.distance_points = 15600.0
 	game.obstacles._take_obstacle().activate(Vector3.ZERO, RoadObstacle.Kind.ROADWORKS)
 	await _frames(4)
-	for hit in range(5):
-		if game.state != game.GameState.PLAYING:
-			break
-		game.obstacles._take_obstacle().activate(Vector3.ZERO, RoadObstacle.Kind.CAR)
-		await _frames(4)
+	game.set_physics_process(false)
+	game.player.active = false
+	for unit in game.pursuit.units:
+		unit.z = 4.0
+		unit.x = game.player.position.x
+		unit.speed = 0.0
+	game.pursuit.advance(game.pursuit.capture_seconds + 1.0, game.player.position, 0.0, 62.0)
 	await _frames(240)
 	_check(game.state == game.GameState.GAME_OVER and game.aftermath.arrived and game.community.resume_button.visible, "capture and police arrival reveal continuation")
 	await _save("secret_caught.png")
@@ -104,11 +109,12 @@ func _capture() -> void:
 	game.free()
 	await process_frame
 	if failures == 0:
-		print("SECRET CAPTURE PASS: 13 named/access/level/pursuit/escape/capture/continuation/ranking views from real contacts and clean recovery")
+		print("SECRET CAPTURE PASS: 13 named/access/level/pursuit/escape/capture/continuation/ranking views from real contacts and separation and sustained capture")
 	quit(1 if failures else 0)
 
 
 func _start_clear(game: Node3D) -> void:
+	game.set_physics_process(true)
 	game.start_game()
 	_clear(game)
 

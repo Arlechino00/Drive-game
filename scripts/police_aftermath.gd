@@ -60,7 +60,7 @@ func start_crash(player_position: Vector3, traffic_kind: int, traffic_position: 
 	wreck.visible = true
 	for index in range(_traffic_visuals.size()):
 		_traffic_visuals[index].visible = index + 1 == wreck_kind and model_id < 3
-	if model_id >= 3 and model_id < 10:
+	if model_id >= 3 and model_id < Models.COUNT:
 		if not _model_visuals.has(model_id):
 			var visual: Node3D = Models.build(model_id)
 			wreck.add_child(visual)

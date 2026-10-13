@@ -2,7 +2,8 @@ class_name PlayerCar
 extends Area3D
 
 const VehicleMesh = preload("res://scripts/vehicle_mesh.gd")
-const COLLISION_SIZE := Vector3(3.3, 1.5, 6.0)
+const Tuning = preload("res://scripts/stage_two_tuning.gd")
+const COLLISION_SIZE := Tuning.PLAYER_SIZE
 const VISUAL_SCALE := Vector3(1.55, 1.2, 1.55)
 
 @export var max_lateral_speed: float = 15.0
@@ -17,6 +18,7 @@ var front_wheels: Array[MeshInstance3D] = []
 var exhausts: Array[MeshInstance3D] = []
 var boosting: bool = false
 var effects_strength: float = 0.7
+var touch_controls: Control
 
 
 func _ready() -> void:
@@ -59,6 +61,8 @@ func _physics_process(delta: float) -> void:
 		steering -= 1.0
 	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		steering += 1.0
+	if touch_controls != null:
+		steering = clampf(steering + touch_controls.get_steering_axis(), -1.0, 1.0)
 	if Input.get_connected_joypads().size() > 0:
 		var stick := Input.get_joy_axis(Input.get_connected_joypads()[0], JOY_AXIS_LEFT_X)
 		if absf(stick) > 0.15:

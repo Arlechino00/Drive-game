@@ -13,6 +13,7 @@ const TrafficModels = preload("res://scripts/traffic_models.gd")
 const HazardVisuals = preload("res://scripts/hazard_visuals.gd")
 const TRAFFIC_SPEED: float = 14.0
 const Player = preload("res://scripts/player_car.gd")
+const Tuning = preload("res://scripts/stage_two_tuning.gd")
 const PLAYER_HALF_WIDTH: float = Player.COLLISION_SIZE.x * 0.5
 const PLAYER_HALF_LENGTH: float = Player.COLLISION_SIZE.z * 0.5
 const NEAR_CLEARANCE: float = 1.0
@@ -23,6 +24,13 @@ var model_id: int = -1
 var racing: bool = false
 var _model_visuals: Dictionary = {}
 var cruise_speed: float = 0.0
+var speed_factor: float = 1.0
+var lane_target: float = 0.0
+var changing_lane: bool = false
+var cut_in_done: bool = false
+var motion_position := Vector3.ZERO
+var motion_x := 0.0
+var motion_speed := 0.0
 var half_width: float = 1.6
 var half_length: float = 0.625
 var pass_collided: bool = false
@@ -32,7 +40,9 @@ var _visuals: Array[Node3D] = []
 var _collision: CollisionShape3D
 var _activation_serial: int = 0
 var _previous_player_x: float = 0.0
+var _previous_actor_x: float = 0.0
 var _pass_finished: bool = false
+var _pass_reward_pending: bool = false
 
 
 func _ready() -> void:
@@ -69,11 +79,17 @@ func activate(at_position: Vector3, vehicle_kind: int = Kind.BARRIER, player_x: 
 	for model in _model_visuals:
 		_model_visuals[model].visible = model == model_id
 	position = at_position
+	speed_factor = 1.0
+	lane_target = at_position.x
+	changing_lane = false
+	cut_in_done = false
 	_previous_player_x = player_x
+	_previous_actor_x = at_position.x
 	minimum_clearance = INF
 	pass_collided = false
 	pass_awarded = false
 	_pass_finished = false
+	_pass_reward_pending = false
 	visible = true
 	set_deferred("monitoring", true)
 	set_deferred("monitorable", true)
@@ -88,6 +104,20 @@ func deactivate() -> void:
 	set_deferred("monitorable", false)
 
 
+func retire() -> void:
+	# A long step can carry a clean pass beyond the pool's rear boundary in
+	# the same tick. Resolve its queued reward/contact before reusing the slot.
+	if _pass_reward_pending:
+		_retire_pass.call_deferred(_activation_serial)
+	else:
+		deactivate()
+
+
+func _retire_pass(serial: int) -> void:
+	if serial == _activation_serial:
+		deactivate()
+
+
 # Sweep both footprints rather than judging a near miss at an arbitrary z point.
 # Lateral samples are interpolated across the part of the frame alongside.
 func advance_pass(relative_delta: float, player_x: float) -> bool:
@@ -96,7 +126,7 @@ func advance_pass(relative_delta: float, player_x: float) -> bool:
 	var previous_z := position.z
 	var next_z := previous_z + relative_delta
 	var longitudinal_extent := half_length + PLAYER_HALF_LENGTH
-	if (not _pass_finished or racing) and minf(previous_z, next_z) <= longitudinal_extent and maxf(previous_z, next_z) >= -longitudinal_extent:
+	if minf(previous_z, next_z) <= longitudinal_extent and maxf(previous_z, next_z) >= -longitudinal_extent:
 		var start_t := 0.0
 		var end_t := 1.0
 		if relative_delta != 0.0:
@@ -104,8 +134,8 @@ func advance_pass(relative_delta: float, player_x: float) -> bool:
 			var last_t := (longitudinal_extent - previous_z) / relative_delta
 			start_t = clampf(minf(first_t, last_t), 0.0, 1.0)
 			end_t = clampf(maxf(first_t, last_t), 0.0, 1.0)
-		var side_start := lerpf(_previous_player_x, player_x, start_t) - position.x
-		var side_end := lerpf(_previous_player_x, player_x, end_t) - position.x
+		var side_start := lerpf(_previous_player_x, player_x, start_t) - lerpf(_previous_actor_x, position.x, start_t)
+		var side_end := lerpf(_previous_player_x, player_x, end_t) - lerpf(_previous_actor_x, position.x, end_t)
 		var closest_side := minf(absf(side_start), absf(side_end))
 		if side_start * side_end <= 0.0:
 			closest_side = 0.0
@@ -118,22 +148,28 @@ func advance_pass(relative_delta: float, player_x: float) -> bool:
 				var side_t := (signf(side_start) * lateral_extent - side_start) / (side_end - side_start)
 				contact_t = lerpf(start_t, end_t, side_t)
 			# Consumers use this position for the stopped traffic aftermath.
+			position.x = lerpf(_previous_actor_x, position.x, contact_t)
 			position.z = lerpf(previous_z, next_z, contact_t)
 			_resolve_player_contact()
 			# Emission may synchronously reset/reuse this pooled obstacle.
 			return true
 	position.z = next_z
 	_previous_player_x = player_x
+	_previous_actor_x = position.x
 	if not racing and not _pass_finished and next_z > longitudinal_extent:
 		_pass_finished = true
 		if cruise_speed > 0.0 and minimum_clearance > 0.0 and minimum_clearance <= NEAR_CLEARANCE and not pass_collided:
 			# Let already queued Area3D collision callbacks cancel the reward.
+			_pass_reward_pending = true
 			_finish_pass.call_deferred(_activation_serial)
 	return false
 
 
 func _finish_pass(serial: int) -> void:
-	if racing or serial != _activation_serial or pass_collided or pass_awarded or not active or cruise_speed <= 0.0:
+	if serial != _activation_serial:
+		return
+	_pass_reward_pending = false
+	if racing or pass_collided or pass_awarded or not active or cruise_speed <= 0.0:
 		return
 	pass_awarded = true
 	var points := 100

@@ -47,6 +47,7 @@ func _run() -> void:
 	_check(game.run_mode == 2 and not game.progress.infinite_boost and game.progress.boost_charge == 0.4, "Secret Mode starts with earned fuel")
 	game.progress.distance_points = 6000.0
 	game.distance = 700.0
+	game.run_seconds = 630.0
 	game.speed = 62.0
 	game.obstacles._take_obstacle().activate(Vector3(0, 0, -4.0), RoadObstacle.Kind.CAR)
 	await _frames(4)
@@ -63,8 +64,8 @@ func _run() -> void:
 	await _frames(30)
 	_check(game.pursuit.gap_m == frozen_gap and game.pursuit.clean_seconds == frozen_clean, "pause freezes police pursuit")
 	game.resume_game()
-	await _frames(1050)
-	_check(game.state == game.GameState.PLAYING and not game.pursuit.active and game.secret_escapes == 1, "actual clean driving escapes the first pursuit")
+	await _escape_without_boost(game)
+	_check(game.state == game.GameState.PLAYING and not game.pursuit.active and game.secret_escapes == 1, "actual steering and separation escape the first pursuit without boost")
 	_check(not game.audio.police_loop.playing, "escape stops the siren")
 	# Two real holes trigger the same moving pursuit instead of ordinary game over.
 	game.start_game()
@@ -81,13 +82,15 @@ func _run() -> void:
 	game.obstacles._take_obstacle().activate(Vector3.ZERO, RoadObstacle.Kind.ROADWORKS)
 	await _frames(4)
 	_check(game.pursuit.active and game.progress.score_valid and game.state == game.GameState.PLAYING, "Secret worksite starts a recoverable pursuit")
-	# Repeated impacts close the police gap, and must eventually cause capture.
+	# Repeated impacts slow the driver but do not teleport police into capture.
 	for hit in range(5):
 		if game.state != game.GameState.PLAYING:
 			break
 		game.obstacles._take_obstacle().activate(Vector3.ZERO, RoadObstacle.Kind.CAR)
 		await _frames(4)
-	_check(game.state == game.GameState.GAME_OVER and game.end_reason.contains("Police"), "repeat real impacts let the police catch the driver")
+	_check(game.state == game.GameState.PLAYING and game.pursuit.active, "repeat real impacts cannot arrest instantly")
+	await _sustain_capture(game)
+	_check(game.state == game.GameState.GAME_OVER and game.end_reason.contains("Police"), "sustained physical police positioning catches the damaged driver")
 	_check(game.aftermath.active and not game.pursuit.active, "capture freezes gameplay and starts police arrival")
 	var code := "TEST-RESUME-2468"
 	game._on_resume_code_submitted(code)
@@ -99,6 +102,10 @@ func _run() -> void:
 	var retained_score: int = game.get_score()
 	var retained_distance: float = game.distance
 	var retained_fuel: float = game.progress.boost_charge
+	# Restart now settles earlier legitimate rounds too. Compare the whole
+	# ordinary partition across continuation instead of assuming this driver's
+	# current captured score is also their highest ordinary score.
+	var ordinary_before_resume: Array[Dictionary] = game.records.top_entries(2, false).duplicate(true)
 	game._on_resume_code_submitted(code)
 	_check(game.state == game.GameState.PLAYING and game.run_resumed, "configured reusable code resumes Secret run")
 	_check(game.get_score() == retained_score and game.distance == retained_distance and game.player_name == "Delia Ștefan", "resume preserves driver and run progress")
@@ -115,13 +122,14 @@ func _run() -> void:
 	_check(game.state == game.GameState.GAME_OVER, "same run cannot have a second continuation")
 	_check(game.records.top_entries(2, true).size() == 1 and game.records.top_entries(0).is_empty(), "resumed Secret score goes to a separate named ranking")
 	var ordinary_rows: Array[Dictionary] = game.records.top_entries(2, false)
-	_check(not ordinary_rows.is_empty() and ordinary_rows[0].score <= retained_score, "unassisted ranking contains only score earned before resume")
+	_check(not ordinary_rows.is_empty() and ordinary_rows == ordinary_before_resume, "resumed score never changes the unassisted ranking")
 	game.start_game()
 	_clear(game)
 	for hit in range(6):
 		if game.state != game.GameState.PLAYING:
 			break
 		game._on_player_hit()
+	await _sustain_capture(game)
 	_check(game.state == game.GameState.GAME_OVER, "later Secret run can be caught")
 	game.aftermath.advance(4.0)
 	game._on_resume_code_submitted(code)
@@ -153,6 +161,10 @@ func _run() -> void:
 
 
 func _clear(game: Node3D) -> void:
+	# Isolate impact pursuits from the new independent radar encounter stream.
+	game.enforcement.sector_at = INF
+	game.enforcement.radar_at = INF
+	game.enforcement.sector_end = INF
 	for obstacle in game.obstacles.obstacle_pool:
 		obstacle.deactivate()
 
@@ -160,6 +172,42 @@ func _clear(game: Node3D) -> void:
 func _frames(count: int) -> void:
 	for frame in range(count):
 		await physics_frame
+	await process_frame
+
+
+func _escape_without_boost(game: Node3D) -> void:
+	_key(KEY_SHIFT, false)
+	for frame in range(65 * 60):
+		if game.state != game.GameState.PLAYING or not game.pursuit.active:
+			break
+		var target := sin(float(frame) / 60.0 * 1.8) * 5.0
+		var error: float = target - game.player.position.x
+		_key(KEY_LEFT, error < -0.25)
+		_key(KEY_RIGHT, error > 0.25)
+		await physics_frame
+	_key(KEY_LEFT, false)
+	_key(KEY_RIGHT, false)
+	await process_frame
+	_check(not game.progress.boosting, "steering escape uses no boost")
+
+
+func _sustain_capture(game: Node3D) -> void:
+	# Start one patrol in a useful capture position, then let real braking
+	# input and normal game updates build sustained pressure over seconds.
+	if not game.pursuit.active:
+		_check(false, "sustained capture fixture requires an existing pursuit")
+		return
+	game.pursuit.units[0].x = game.player.position.x
+	game.pursuit.units[0].z = 4.0
+	game.pursuit.units[0].speed = game.speed
+	_key(KEY_S, true)
+	await _frames(60)
+	_check(game.state == game.GameState.PLAYING and game.pursuit.capture_fraction > 0.0 and game.pursuit.capture_fraction < 0.4, "one second of actual police contact builds pressure without arrest")
+	for frame in range(360):
+		if game.state != game.GameState.PLAYING:
+			break
+		await physics_frame
+	_key(KEY_S, false)
 	await process_frame
 
 

@@ -20,7 +20,7 @@ func _run() -> void:
 	_test_following_traffic()
 	_test_seeded_routes()
 	if failures == 0:
-		print("APEX SAFETY PASS: drawn 4-7s boost requirements, bounded jam escape, all-lane swept detours, deterministic capped bursts, fast safe overtakes, 7s boost victory, safe-lane driver, committed-turn protection, blocked-lane braking, eight seeded live-race routes, no traffic clipping, boost requirement after braking")
+		print("APEX SAFETY PASS: drawn 4-7s boost requirements, bounded jam escape, all-lane swept detours, deterministic finite bursts, fast safe overtakes, 7s boost victory, safe-lane driver, committed-turn protection, blocked-lane braking, eight seeded live-race routes, no traffic clipping, boost requirement after braking")
 	quit(1 if failures else 0)
 
 
@@ -98,15 +98,19 @@ func _test_jammed_overtake() -> void:
 		race.countdown_remaining = 0.0
 		var traffic: Array[RoadObstacle] = [actor, blocker, right]
 		var cleared := false
-		for frame in range(90):
+		# A blocked rival now accelerates physically after braking; allow that
+		# recovery while still requiring a bounded, contact-free escape.
+		for frame in range(240):
 			race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic, player_speed)
 			actor.advance_pass((player_speed - actor.cruise_speed) / 60.0, -5.0)
 			blocker.position.z += (player_speed - 14.0) / 60.0
 			right.position.z += (player_speed - 14.0) / 60.0
+			for obstacle in [blocker, right]:
+				_check(not (absf(actor.position.x - obstacle.position.x) < actor.half_width + obstacle.half_width and absf(actor.position.z - obstacle.position.z) < actor.half_length + obstacle.half_length), "jam escape preserves traffic footprints")
 			if actor.position.z < blocker.position.z - actor.half_length - blocker.half_length:
 				cleared = true
 				break
-		_check(cleared and actor.active, "jammed rival clears accessible left detour within 1.5 seconds at player speed %.0f" % player_speed)
+		_check(cleared and actor.active, "jammed rival clears accessible left detour within four seconds with finite acceleration at player speed %.0f" % player_speed)
 		if not cleared:
 			print("JAM REPRO player=", player_speed, " rival=", actor.position, " cruise=", actor.cruise_speed, " target=", race.lane_target, " blocker=", blocker.position)
 		race.reset()
@@ -120,21 +124,25 @@ func _test_aggressive_bursts() -> void:
 	actor.activate(Vector3(5, 0, -14), 3, -5.0, 8)
 	var race := Race.new()
 	race.begin(actor, 62.0)
-	actor.cruise_speed = 63.0
 	race.countdown_remaining = 0.0
 	var traffic: Array[RoadObstacle] = [actor]
-	_check(actor.cruise_speed == 63.0, "initial challenge preserves baseline rival speed")
+	actor.cruise_speed = 62.0 + Race.SPEED_ADVANTAGE
+	_check(actor.cruise_speed == 65.0, "burst fixture begins at new rival cruise speed")
 	race.elapsed = 6.0
 	race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic)
-	_check(actor.cruise_speed == 66.0, "deterministic burst changes actual cruise speed")
+	_check(actor.cruise_speed > 65.0 and actor.cruise_speed <= 65.0 + race.get_acceleration(62.0) / 60.0 + 0.00001, "deterministic burst accelerates actual cruise speed finitely")
 	actor.advance_pass((62.0 - actor.cruise_speed) / 60.0, -5.0)
 	_check(actor.position.z < -14.0, "burst advances rival relative to unboosted player")
 	race.elapsed = 7.0
-	race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic)
-	_check(actor.cruise_speed == 63.0, "one-second burst returns to baseline speed")
+	for frame in range(3):
+		race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic)
+	_check(actor.cruise_speed == 65.0, "one-second burst returns to cruise with finite deceleration")
 	race.elapsed = 16.0
-	race.prepare_opponent(1.0 / 60.0, 100.0, -5.0, traffic)
-	_check(actor.cruise_speed == race.MAX_RIVAL_SPEED and actor.cruise_speed < DifficultyDirector.MAX_BOOST_SPEED, "burst hard cap preserves faster player boost")
+	for frame in range(180):
+		var before := actor.cruise_speed
+		race.prepare_opponent(1.0 / 60.0, 100.0, -5.0, traffic, 100.0)
+		_check(actor.cruise_speed - before <= race.get_acceleration(100.0) / 60.0 + 0.00001, "high-speed burst cannot jump speed")
+	_check(is_equal_approx(actor.cruise_speed, 104.0), "rival scales to actual run speed without the old fixed ceiling")
 	race.reset()
 	actor.activate(Vector3(5, 0, -100), 3, -5.0, 8)
 	race.begin(actor, 62.0)
@@ -156,8 +164,8 @@ func _test_aggressive_bursts() -> void:
 	var result := 0
 	for frame in range(1800):
 		var boosted := frame < 420
-		speed = move_toward(speed, 80.0 if boosted else 62.0, (16.0 if boosted else 12.0) / 60.0)
-		race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic)
+		speed = move_toward(speed, 62.0 + DifficultyDirector.BOOST_SPEED_GAIN if boosted else 62.0, (16.0 if boosted else 12.0) / 60.0)
+		race.prepare_opponent(1.0 / 60.0, 62.0, -5.0, traffic, speed)
 		actor.advance_pass((speed - actor.cruise_speed) / 60.0, -5.0)
 		result = race.advance(1.0 / 60.0, boosted)
 	_check(result == 1 and race.lead_m > 0.0, "seven seconds of boost beats aggressive bursts with real acceleration")

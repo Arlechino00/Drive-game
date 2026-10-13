@@ -11,17 +11,21 @@ config_version=5
 [application]
 
 config/name="Synthwave Drive"
-config/icon="res://logo.png"
 run/main_scene="res://scenes/main.tscn"
+config/quit_on_go_back=false
 config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://logo.png"
 
 [display]
 
 window/size/viewport_width=2560
 window/size/viewport_height=2048
 window/stretch/mode="canvas_items"
+window/handheld/orientation=4
+window/stretch/aspect.mobile="expand"
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

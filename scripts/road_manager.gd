@@ -2,7 +2,9 @@ class_name RoadManager
 extends Node3D
 
 const SEGMENT_LENGTH: float = 40.0
-const SEGMENT_COUNT: int = 9
+const Tuning = preload("res://scripts/stage_two_tuning.gd")
+# Preview plus the rear recycling margin; allocate once and reuse on restart.
+const SEGMENT_COUNT: int = int(Tuning.LOOK_AHEAD_MAX / SEGMENT_LENGTH) + 6
 const ROAD_WIDTH: float = 16.0
 const CHUNKS_PER_SECTION: int = 10
 const CHUNK_SCRIPT = preload("res://scripts/road_chunk.gd")
@@ -14,6 +16,8 @@ var cyan_material: StandardMaterial3D
 var pink_material: StandardMaterial3D
 var grid_material: StandardMaterial3D
 var materials: Dictionary = {}
+var _road_phase := 0.0
+var _road_cycles := 0
 
 
 func _ready() -> void:
@@ -62,6 +66,8 @@ func _ready() -> void:
 
 
 func reset_road() -> void:
+	_road_phase = 0.0
+	_road_cycles = 0
 	for index in range(segments.size()):
 		segments[index].position.z = SEGMENT_LENGTH - index * SEGMENT_LENGTH
 		segments[index].configure(index - 1, CHUNKS_PER_SECTION)
@@ -70,12 +76,23 @@ func reset_road() -> void:
 func advance(distance_delta: float) -> void:
 	if distance_delta <= 0.0:
 		return
-	for segment in segments:
-		segment.position.z += distance_delta
-		# Large debug advances preserve the spatial ring as well.
-		while segment.position.z >= SEGMENT_LENGTH + 60.0:
-			segment.position.z -= SEGMENT_COUNT * SEGMENT_LENGTH
-			segment.configure(segment.chunk_index + SEGMENT_COUNT, CHUNKS_PER_SECTION)
+	var ring_length := SEGMENT_COUNT * SEGMENT_LENGTH
+	_road_phase += distance_delta
+	_road_cycles += floori(_road_phase / ring_length)
+	_road_phase = fposmod(_road_phase, ring_length)
+	for index in range(segments.size()):
+		var segment := segments[index]
+		# One double-precision phase avoids independent position drift across the
+		# larger road ring, and handles delayed frames without repeated recycling.
+		var at_z := SEGMENT_LENGTH - index * SEGMENT_LENGTH + _road_phase
+		var cycle := _road_cycles
+		if at_z >= SEGMENT_LENGTH + 60.0:
+			at_z -= ring_length
+			cycle += 1
+		segment.position.z = at_z
+		var chunk_index := index - 1 + cycle * SEGMENT_COUNT
+		if segment.chunk_index != chunk_index:
+			segment.configure(chunk_index, CHUNKS_PER_SECTION)
 
 
 func get_section_name() -> String:
