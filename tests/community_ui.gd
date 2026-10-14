@@ -162,8 +162,8 @@ func _run() -> void:
 	ui.show_playing()
 	community.update_pursuit(true, 37.0, 8.0)
 	_check(community.rearview_panel.visible and "37" in community.pursuit_caption.text, "active pursuit displays measurable gap")
-	community.update_pursuit(true, 37.0, 15.9)
-	_check("15/16s" in community.pursuit_caption.text, "clean progress does not claim escape before sixteen seconds")
+	community.update_pursuit(true, 137.0, 4.9)
+	_check("4/5s" in community.pursuit_caption.text, "disengagement progress does not claim escape before five seconds")
 	community.update_pursuit(false, 0.0, 0.0)
 	_check(not community.rearview_panel.visible, "inactive pursuit hides mirror")
 	for window_size in SIZES:

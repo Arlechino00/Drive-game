@@ -1,6 +1,9 @@
 class_name GameUI
 extends CanvasLayer
 
+const L = preload("res://scripts/localization.gd")
+const DriveInput = preload("res://scripts/drive_input.gd")
+
 signal start_pressed
 signal resume_pressed
 signal restart_pressed
@@ -9,6 +12,9 @@ signal menu_pressed
 signal settings_changed(key: String, value: float)
 signal mode_selected(mode: int)
 signal leaderboard_pressed
+signal secret_access_pressed
+signal tutorial_pressed
+signal language_changed
 
 const CYAN := Color("#70eaf3")
 const MAGENTA := Color("#fa78c1")
@@ -19,6 +25,7 @@ const INK := Color("#101126")
 const UI_REFERENCE := Vector2(1100.0, 800.0)
 
 var interface: Control
+var mobile_mode: bool = false
 var brand_logo: TextureRect
 var title_label: Label
 var hud: Control
@@ -30,6 +37,7 @@ var boost_label: Label
 var boost_value_label: Label
 var boost_hint: Label
 var mode_label: Label
+var rank_label: Label
 var result_mode_label: Label
 var mode_buttons: Array[Button] = []
 var mode_detail: Label
@@ -49,8 +57,14 @@ var settings_values: Dictionary = {}
 var fullscreen_toggle: CheckButton
 var quality_choice: OptionButton
 var resolution_choice: OptionButton
+var language_choice: OptionButton
+var menu_language_choice: OptionButton
+var _last_multiplier: float = 1.0
+var _last_hazard: float = 0.0
+var _last_result: Array = []
 var _settings_return: ColorRect
 var _feedback_tween: Tween
+var _feedback_priority: int = 0
 var _effects: float = 1.0
 var _configuring: bool = false
 var _boost_fill: StyleBoxFlat
@@ -65,6 +79,7 @@ var _reward_boost_remaining: float = 0.0
 
 
 func _ready() -> void:
+	DriveInput.ensure_actions()
 	# Menus remain interactive during pause; feedback owns its pausable tween.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	interface = Control.new()
@@ -81,47 +96,68 @@ func _ready() -> void:
 	_resize_interface()
 	get_viewport().size_changed.connect(_resize_interface)
 	_build_hud(interface)
-	menu = _make_overlay(interface, "TitleMenu", "SYNTHWAVE\nDRIVE", "An endless highway. One more run.", MAGENTA)
+	menu = _make_overlay(interface, "TitleMenu", "SYNTHWAVE\nDRIVE", L.text("ui.an_endless_highway_one_more_run"), MAGENTA)
+	if mobile_mode:
+		# Leave room for the persistent language selector while preserving the
+		# large touch targets and the original branding dimensions.
+		_column(menu).add_theme_constant_override("separation", 10)
 	_build_mode_choice()
-	_add_button(menu, "Start driving", func() -> void: start_pressed.emit(), true)
-	_add_secondary_actions(menu, [["Leaderboard", func() -> void: leaderboard_pressed.emit()], ["Settings", func() -> void: _open_settings(menu)], ["Quit", func() -> void: quit_pressed.emit()]])
+	_build_menu_language()
+	_add_button(menu, L.text("ui.start_driving"), func() -> void: start_pressed.emit(), true)
+	var title_actions: Array = [[L.text("ui.leaderboard"), func() -> void: leaderboard_pressed.emit()], [L.text("ui.settings"), func() -> void: _open_settings(menu)], [L.text("tutorial.button"), func() -> void: tutorial_pressed.emit()]]
+	if mobile_mode:
+		title_actions.append([L.text("ui.secret"), func() -> void: secret_access_pressed.emit()])
+	title_actions.append([L.text("ui.quit"), func() -> void: quit_pressed.emit()])
+	_add_secondary_actions(menu, title_actions)
 	_add_controls(menu)
-	pause_menu = _make_overlay(interface, "PauseMenu", "Paused", "Your run is waiting.", CYAN)
-	_add_button(pause_menu, "Resume", func() -> void: resume_pressed.emit(), true)
-	_add_secondary_actions(pause_menu, [["Restart", func() -> void: restart_pressed.emit()], ["Settings", func() -> void: _open_settings(pause_menu)]])
-	_add_secondary_actions(pause_menu, [["Main menu", func() -> void: menu_pressed.emit()], ["Quit", func() -> void: quit_pressed.emit()]])
-	_add_footer(pause_menu, "Esc  ·  Resume       R  ·  Restart")
-	game_over_menu = _make_overlay(interface, "GameOverMenu", "Run complete", "The highway is calling again.", MAGENTA)
-	result_mode_label = _make_label("Fair", 22, CYAN)
+	pause_menu = _make_overlay(interface, "PauseMenu", L.text("ui.paused"), L.text("ui.your_run_is_waiting"), CYAN)
+	_add_button(pause_menu, L.text("ui.resume"), func() -> void: resume_pressed.emit(), true)
+	_add_secondary_actions(pause_menu, [[L.text("ui.restart"), func() -> void: restart_pressed.emit()], [L.text("ui.settings"), func() -> void: _open_settings(pause_menu)], [L.text("tutorial.button"), func() -> void: tutorial_pressed.emit()]])
+	_add_secondary_actions(pause_menu, [[L.text("ui.main_menu"), func() -> void: menu_pressed.emit()], [L.text("ui.quit"), func() -> void: quit_pressed.emit()]])
+	_add_footer(pause_menu, L.text("ui.tap_resume_to_continue") if mobile_mode else L.text("ui.esc_resume_r_restart"))
+	game_over_menu = _make_overlay(interface, "GameOverMenu", L.text("ui.run_complete"), L.text("ui.the_highway_is_calling_again"), MAGENTA)
+	if mobile_mode:
+		_column(game_over_menu).add_theme_constant_override("separation", 8)
+	result_mode_label = _make_label(L.text("ui.fair"), 22, CYAN)
 	result_mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column(game_over_menu).add_child(result_mode_label)
-	final_score_label = _make_label("SCORE 000000", 42, WHITE)
+	final_score_label = _make_label(L.text("ui.score_000000"), 42, WHITE)
 	final_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column(game_over_menu).add_child(final_score_label)
-	best_score_label = _make_label("BEST 000000", 22, MUTED)
+	best_score_label = _make_label(L.text("ui.best_000000"), 22, MUTED)
 	best_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column(game_over_menu).add_child(best_score_label)
-	record_label = _make_label("New personal best", 22, ORANGE)
+	record_label = _make_label(L.text("ui.new_personal_best"), 22, ORANGE)
 	record_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column(game_over_menu).add_child(record_label)
-	run_stats_label = _make_label("0.00 km   /   Top combo x1.0\n0 near misses", 22, MUTED)
+	run_stats_label = _make_label(L.text("ui.0_00_km_top_combo_x1_0_0_near_misses"), 22, MUTED)
 	run_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_column(game_over_menu).add_child(run_stats_label)
-	_add_button(game_over_menu, "Restart", func() -> void: restart_pressed.emit(), true)
-	_add_secondary_actions(game_over_menu, [["Main menu", func() -> void: menu_pressed.emit()], ["Quit", func() -> void: quit_pressed.emit()]])
-	_add_footer(game_over_menu, "R  ·  Restart")
+	_add_button(game_over_menu, L.text("ui.restart"), func() -> void: restart_pressed.emit(), true)
+	_add_secondary_actions(game_over_menu, [[L.text("ui.main_menu"), func() -> void: menu_pressed.emit()], [L.text("ui.quit"), func() -> void: quit_pressed.emit()]])
+	_add_footer(game_over_menu, L.text("ui.one_more_run") if mobile_mode else L.text("ui.r_restart"))
 	_build_settings(interface)
 	configure_mode(0)
 	show_menu()
 
 
-func _resize_interface() -> void:
+func _resize_interface(safe_override: Rect2 = Rect2()) -> void:
 	# Keep the user's 3D resolution/aspect, but lay out UI in a readable design space.
-	var available := get_viewport().get_visible_rect().size
+	var safe := get_viewport().get_visible_rect()
+	if mobile_mode:
+		if safe_override.has_area():
+			safe = safe.intersection(safe_override)
+		elif OS.has_feature("android") or OS.has_feature("ios"):
+			var display_safe := Rect2(DisplayServer.get_display_safe_area())
+			var canvas_safe := get_viewport().get_final_transform().affine_inverse() * display_safe
+			if canvas_safe.has_area():
+				safe = safe.intersection(canvas_safe)
+	var available := safe.size
 	var factor := minf(available.x / UI_REFERENCE.x, available.y / UI_REFERENCE.y)
 	factor = maxf(factor, 0.1)
 	interface.scale = Vector2.ONE * factor
 	interface.size = available / factor
+	interface.position = safe.position
 
 
 func _build_hud(parent: Control) -> void:
@@ -145,15 +181,21 @@ func _build_hud(parent: Control) -> void:
 	score_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	score_column.add_theme_constant_override("separation", 0)
 	row.add_child(score_column)
-	mode_label = _make_label("Score  ·  Fair", 22, MUTED)
+	mode_label = _make_label(L.text("ui.score_fair"), 22, MUTED)
 	mode_label.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	score_column.add_child(mode_label)
 	score_label = _make_label("000000", 44, WHITE)
 	score_label.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	score_column.add_child(score_label)
-	combo_label = _make_label("x1.0 combo", 24, MAGENTA)
+	combo_label = _make_label(L.text("ui.x1_0_combo"), 24, MAGENTA)
 	combo_label.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	score_column.add_child(combo_label)
+	rank_label = _make_label(L.text("ui.unranked"), 18, ORANGE)
+	rank_label.name = "RankingStatus"
+	rank_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(rank_label)
+	rank_label.position = Vector2(30, 144)
+	rank_label.visible = false
 	var speed_column := VBoxContainer.new()
 	speed_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	speed_column.add_theme_constant_override("separation", -8)
@@ -164,7 +206,7 @@ func _build_hud(parent: Control) -> void:
 	var unit := _make_label("km/h", 22, MUTED)
 	unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	speed_column.add_child(unit)
-	var pause_hint := _make_label("Esc  ·  Pause", 22, MUTED)
+	var pause_hint := _make_label(L.text("ui.tap_pause") if mobile_mode else L.text("ui.esc_pause"), 22, MUTED)
 	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	speed_column.add_child(pause_hint)
 	var bottom := CenterContainer.new()
@@ -181,7 +223,7 @@ func _build_hud(parent: Control) -> void:
 	var boost_header := HBoxContainer.new()
 	boost_header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	boost_column.add_child(boost_header)
-	boost_label = _make_label("Boost", 22, CYAN)
+	boost_label = _make_label(L.text("ui.boost"), 22, CYAN)
 	boost_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	boost_header.add_child(boost_label)
 	boost_value_label = _make_label("40%", 22, CYAN)
@@ -194,7 +236,7 @@ func _build_hud(parent: Control) -> void:
 	_boost_fill = _panel_style(CYAN, CYAN, 0, 4)
 	boost_meter.add_theme_stylebox_override("fill", _boost_fill)
 	boost_column.add_child(boost_meter)
-	boost_hint = _make_label("Hold Shift / Space", 22, MUTED)
+	boost_hint = _make_label(L.text("ui.hold_shift_space"), 24 if mobile_mode else 22, MUTED)
 	boost_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boost_column.add_child(boost_hint)
 	feedback = _make_label("", 26, CYAN)
@@ -228,7 +270,8 @@ func _build_hud(parent: Control) -> void:
 func update_hud(score: int, speed_kmh: int, multiplier: float = 1.0, boost: float = 0.0, boosting: bool = false, recovery: float = 0.0) -> void:
 	score_label.text = "%06d" % score
 	speed_label.text = "%03d" % speed_kmh
-	combo_label.text = "x%.1f combo" % multiplier
+	_last_multiplier = multiplier
+	combo_label.text = L.text("ui.x_1f_combo") % multiplier
 	combo_label.modulate = WHITE if multiplier > 1.0 else Color(1, 1, 1, 0.8)
 	_boost_amount = clampf(boost, 0.0, 1.0)
 	_boosting = boosting
@@ -240,15 +283,15 @@ func _update_boost_display() -> void:
 	var unlimited := _mode == 1 or _reward_boost_remaining > 0.0
 	boost_meter.value = 100.0 if unlimited else _boost_amount * 100.0
 	if unlimited:
-		boost_label.text = "Boosting  ·  Unlimited" if _boosting else "Unlimited boost"
+		boost_label.text = L.text("ui.boosting_unlimited") if _boosting else L.text("ui.unlimited_boost")
 		boost_value_label.text = "∞"
 	else:
-		boost_label.text = "Boosting" if _boosting else "Boost"
+		boost_label.text = L.text("ui.boosting") if _boosting else L.text("ui.boost")
 		boost_value_label.text = "%d%%" % roundi(_boost_amount * 100.0)
 	if _recovery_remaining > 0.0 and _mode != 2:
-		boost_hint.text = "Recovering  ·  boost in %.1fs" % _recovery_remaining
+		boost_hint.text = L.text("ui.recovering_boost_in_1fs") % _recovery_remaining
 	else:
-		boost_hint.text = "Earn boost with near misses" if not unlimited and _boost_amount <= 0.0 else "Hold Shift / Space"
+		boost_hint.text = L.text("ui.earn_boost_with_near_misses") if not unlimited and _boost_amount <= 0.0 else (L.text("ui.hold_boost") if mobile_mode else L.text("ui.hold_shift_space"))
 	boost_label.add_theme_color_override("font_color", ORANGE if _boosting else CYAN)
 	boost_value_label.add_theme_color_override("font_color", ORANGE if _boosting else CYAN)
 	_boost_fill.bg_color = ORANGE if _boosting else CYAN
@@ -261,13 +304,14 @@ func set_reward_boost(remaining: float) -> void:
 
 
 func update_hazard_warning(remaining: float) -> void:
+	_last_hazard = remaining
 	hazard_warning.visible = remaining > 0.0
-	var consequence := "Repeat hits bring the police" if _mode == 2 else "Another hole ends your run"
-	hazard_warning.text = "POTHOLE DAMAGE  ·  %.1fs\n%s" % [remaining, consequence] if remaining > 0.0 else ""
+	var consequence := L.text("ui.repeat_hits_bring_the_police") if _mode == 2 else L.text("ui.another_hole_ends_your_run")
+	hazard_warning.text = L.text("ui.pothole_damage_1fs_s") % [remaining, consequence] if remaining > 0.0 else ""
 
 
 func _build_mode_choice() -> void:
-	var caption := _make_label("Choose your drive", 22, WHITE)
+	var caption := _make_label(L.text("ui.choose_your_drive"), 22, WHITE)
 	_column(menu).add_child(caption)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -276,7 +320,7 @@ func _build_mode_choice() -> void:
 	for mode in range(3):
 		var button := _make_button("")
 		button.name = ["FairMode", "InfiniteBoostMode", "SecretMode"][mode]
-		button.tooltip_text = ["Fair mode: earn boost with near misses", "Infinite Boost mode: unlimited boost, separate personal best", "sySTEMatic Secret: earned boost and police pursuits"][mode]
+		button.tooltip_text = [L.text("ui.fair_mode_earn_boost_with_near_misses"), L.text("ui.infinite_boost_mode_unlimited_boost_separate_personal_best"), L.text("ui.systematic_secret_earned_boost_and_police_pursuits")][mode]
 		button.custom_minimum_size = Vector2(256, 88)
 		button.visible = mode != 2 or _secret_unlocked
 		button.toggle_mode = true
@@ -292,17 +336,17 @@ func _build_mode_choice() -> void:
 		content.offset_top = 11
 		content.offset_bottom = -11
 		content.add_theme_constant_override("separation", 2)
-		var title := _make_label(["Fair", "Infinite Boost", "Secret"][mode], 25, WHITE)
+		var title := _make_label([L.text("ui.fair"), L.text("ui.infinite_boost"), L.text("ui.secret")][mode], 25, WHITE)
 		content.add_child(title)
 		_mode_captions.append(title)
-		var description := _make_label(["Earn your boost", "Stay at full power", "Outrun the police"][mode], 22, MUTED)
+		var description := _make_label([L.text("ui.earn_your_boost"), L.text("ui.stay_at_full_power"), L.text("ui.outrun_the_police")][mode], 22, MUTED)
 		content.add_child(description)
 		button.pressed.connect(func() -> void:
 			configure_mode(mode)
 			mode_selected.emit(_mode))
 		row.add_child(button)
 		mode_buttons.append(button)
-	mode_detail = _make_label("Earn boost with near misses.", 22, MUTED)
+	mode_detail = _make_label(L.text("ui.earn_boost_with_near_misses_alt"), 22, MUTED)
 	_column(menu).add_child(mode_detail)
 
 
@@ -310,15 +354,15 @@ func configure_mode(mode: int) -> void:
 	_mode = mode if mode == 1 or (mode == 2 and _secret_unlocked) else 0
 	for index in range(mode_buttons.size()):
 		mode_buttons[index].set_pressed_no_signal(index == _mode)
-		_mode_captions[index].text = ("✓  " if index == _mode else "") + ["Fair", "Infinite Boost", "Secret"][index]
+		_mode_captions[index].text = ("✓  " if index == _mode else "") + [L.text("ui.fair"), L.text("ui.infinite_boost"), L.text("ui.secret")][index]
 		_mode_captions[index].add_theme_color_override("font_color", CYAN if index == _mode else WHITE)
-	var caption: String = ["Fair", "Infinite Boost", "sySTEMatic Secret"][_mode]
-	mode_label.text = "Score  ·  " + caption
-	result_mode_label.text = caption + " mode"
+	var caption: String = [L.text("ui.fair"), L.text("ui.infinite_boost"), L.text("ui.systematic_secret")][_mode]
+	mode_label.text = L.text("ui.score") + caption
+	result_mode_label.text = caption + L.text("ui.mode")
 	if _mode == 2 and _resumed:
-		mode_label.text = "Score  ·  Secret  ·  Resumed"
-		result_mode_label.text = "sySTEMatic Secret  ·  Resumed run"
-	mode_detail.text = ["Close passes earn boost and grow your combo.", "Unlimited boost. Separate personal best.", "Earn boost. Escape police with speed or clean driving."][_mode]
+		mode_label.text = L.text("ui.score_secret_resumed")
+		result_mode_label.text = L.text("ui.systematic_secret_resumed_run")
+	mode_detail.text = [L.text("ui.close_passes_earn_boost_and_grow_your_combo"), L.text("ui.unlimited_boost_separate_personal_best"), L.text("ui.earn_boost_escape_police_with_speed_or_clean_driving")][_mode]
 	_update_boost_display()
 
 
@@ -356,21 +400,24 @@ func show_paused() -> void:
 	hud.visible = true
 
 
-func show_game_over(score: int, best_score: int, distance: float = 0.0, top_combo: float = 1.0, near_misses: int = 0, new_best: bool = false, reason: String = "", invalid: bool = false, police_scene: bool = false) -> void:
+func show_game_over(score: int, best_score: int, distance: float = 0.0, top_combo: float = 1.0, near_misses: int = 0, new_best: bool = false, reason: String = "", invalid: bool = false, police_scene: bool = false, save_notice: String = "") -> void:
+	_last_result = [score, best_score, distance, top_combo, near_misses, new_best, reason, invalid, police_scene, save_notice]
 	_clear_feedback()
 	update_hazard_warning(0.0)
-	final_score_label.text = "SCORE INVALID" if invalid else "SCORE %06d" % score
+	final_score_label.text = L.text("ui.score_invalid") if invalid else L.text("ui.score_06d") % score
 	final_score_label.add_theme_color_override("font_color", ORANGE if invalid else WHITE)
-	best_score_label.text = "BEST %06d" % best_score
+	best_score_label.text = L.text("ui.best_06d") % best_score
 	record_label.visible = new_best and not invalid
 	var heading: Label = game_over_menu.get_meta("heading")
 	var detail: Label = game_over_menu.get_meta("detail")
-	heading.text = "Police stop" if invalid else "Run complete"
-	detail.text = reason if not reason.is_empty() else "The highway is calling again."
+	heading.text = L.text("ui.police_stop") if invalid else L.text("ui.run_complete")
+	detail.text = L.translate_message(reason) if not reason.is_empty() else L.text("ui.the_highway_is_calling_again")
+	if not save_notice.is_empty():
+		detail.text += ("\n" if mobile_mode else "\n\n") + L.translate_message(save_notice)
 	var center: CenterContainer = game_over_menu.get_meta("center")
 	center.anchor_left = 0.4 if police_scene else 0.0
 	game_over_menu.color.a = 0.18 if police_scene else 0.72
-	run_stats_label.text = "%.2f km   /   Top combo x%.1f\n%d near misses" % [distance / 1000.0, top_combo, near_misses]
+	run_stats_label.text = L.text("ui.2f_km_top_combo_x_1f_d_near_misses") % [distance / 1000.0, top_combo, near_misses]
 	_show_only(game_over_menu)
 	hud.visible = not police_scene
 
@@ -391,16 +438,24 @@ func configure_settings(volume: float, shake: float, effects: float, fullscreen:
 func set_effects(amount: float) -> void:
 	_effects = clampf(amount, 0.0, 1.0)
 
+func configure_ranked(eligible: bool) -> void:
+	# Keep the state visible after warnings fade; a fresh ranked run clears it.
+	rank_label.visible = not eligible
+	rank_label.text = L.text("ui.unranked")
+
 
 func set_debug(text: String, enabled: bool) -> void:
 	debug_label.text = text
 	debug_label.visible = enabled
 
 
-func show_feedback(text: String, color: Color = CYAN) -> void:
+func show_feedback(text: String, color: Color = CYAN, priority: int = 0, duration: float = 1.1) -> void:
+	if feedback.visible and _feedback_tween and _feedback_tween.is_valid() and priority < _feedback_priority:
+		return
+	_feedback_priority = priority
 	if _feedback_tween and _feedback_tween.is_valid():
 		_feedback_tween.kill()
-	feedback.text = text
+	L.bind(feedback, "text", text)
 	feedback.add_theme_color_override("font_color", color)
 	feedback.modulate.a = 1.0
 	feedback.scale = Vector2.ONE
@@ -411,23 +466,26 @@ func show_feedback(text: String, color: Color = CYAN) -> void:
 	if _effects > 0.0:
 		feedback.scale = Vector2.ONE * (1.0 + 0.06 * _effects)
 		_feedback_tween.tween_property(feedback, "scale", Vector2.ONE, 0.16)
-	_feedback_tween.tween_interval(0.65)
+	_feedback_tween.tween_interval(maxf(0.0, duration - (0.46 if _effects > 0.0 else 0.3)))
 	_feedback_tween.tween_property(feedback, "modulate:a", 0.0, 0.3)
-	_feedback_tween.tween_callback(func() -> void: feedback.visible = false)
+	_feedback_tween.tween_callback(func() -> void:
+		feedback.visible = false
+		_feedback_priority = 0)
 
 
 func _clear_feedback() -> void:
+	_feedback_priority = 0
 	if _feedback_tween and _feedback_tween.is_valid():
 		_feedback_tween.kill()
 	feedback.visible = false
 
 
 func _build_settings(parent: Control) -> void:
-	settings_menu = _make_overlay(parent, "SettingsMenu", "Settings", "Find your rhythm.", CYAN)
+	settings_menu = _make_overlay(parent, "SettingsMenu", L.text("ui.settings"), L.text("ui.find_your_rhythm"), CYAN)
 	_column(settings_menu).add_theme_constant_override("separation", 10)
 	var grabber := _slider_icon(WHITE)
 	var active_grabber := _slider_icon(CYAN)
-	for entry in [["volume", "Master volume"], ["shake", "Camera shake"], ["effects", "Visual effects"]]:
+	for entry in [["volume", L.text("ui.master_volume")], ["shake", L.text("ui.camera_shake")], ["effects", L.text("ui.visual_effects")]]:
 		var key: String = entry[0]
 		var caption: String = entry[1]
 		var header := HBoxContainer.new()
@@ -460,12 +518,14 @@ func _build_settings(parent: Control) -> void:
 				settings_changed.emit(key, value))
 		settings_sliders[key] = slider
 		_column(settings_menu).add_child(slider)
-	quality_choice = _setting_choice("quality", "Render quality", ["Low", "Balanced", "High"])
-	quality_choice.tooltip_text = "Low reduces glow. High smooths car and road edges."
-	resolution_choice = _setting_choice("resolution", "Window size", ["Current window", "1280 × 720", "1920 × 1080", "2560 × 1440"])
-	resolution_choice.tooltip_text = "Smaller windows draw faster. Fullscreen uses your display size."
+	language_choice = _setting_choice("language", L.text("settings.language"), ["English", "Română"])
+	language_choice.item_selected.connect(configure_language)
+	quality_choice = _setting_choice("quality", L.text("ui.render_quality"), [L.text("ui.low"), L.text("ui.balanced"), L.text("ui.high")])
+	quality_choice.tooltip_text = L.text("ui.low_reduces_glow_high_smooths_car_and_road_edges")
+	resolution_choice = _setting_choice("resolution", L.text("ui.window_size"), [L.text("ui.current_window"), "1280 × 720", "1920 × 1080", "2560 × 1440"])
+	resolution_choice.tooltip_text = L.text("ui.smaller_windows_draw_faster_fullscreen_uses_your_display_size")
 	fullscreen_toggle = CheckButton.new()
-	fullscreen_toggle.text = "Fullscreen"
+	L.bind(fullscreen_toggle, "text", L.text("ui.fullscreen"))
 	fullscreen_toggle.add_theme_font_size_override("font_size", 24)
 	fullscreen_toggle.add_theme_color_override("font_color", WHITE)
 	fullscreen_toggle.add_theme_color_override("font_hover_color", CYAN)
@@ -482,8 +542,11 @@ func _build_settings(parent: Control) -> void:
 		if not _configuring:
 			settings_changed.emit("fullscreen", 1.0 if enabled else 0.0))
 	_column(settings_menu).add_child(fullscreen_toggle)
-	_add_button(settings_menu, "Back", _close_settings, true)
-	_add_footer(settings_menu, "Esc  ·  Back       Changes save automatically")
+	if mobile_mode:
+		resolution_choice.get_parent().visible = false
+		fullscreen_toggle.visible = false
+	_add_button(settings_menu, L.text("ui.back"), _close_settings, true)
+	_add_footer(settings_menu, L.text("ui.changes_save_automatically") if mobile_mode else L.text("ui.esc_back_changes_save_automatically"))
 
 
 func _setting_choice(key: String, caption: String, choices: Array) -> OptionButton:
@@ -498,6 +561,7 @@ func _setting_choice(key: String, caption: String, choices: Array) -> OptionButt
 	choice.add_theme_font_size_override("font_size", 22)
 	for text in choices:
 		choice.add_item(text)
+	choice.set_meta("locale_choices", choices.duplicate())
 	choice.item_selected.connect(func(index: int) -> void:
 		if not _configuring:
 			settings_changed.emit(key, float(index)))
@@ -522,8 +586,14 @@ func is_settings_open() -> bool:
 	return settings_menu.visible
 
 
+func set_settings_save_notice(message: String) -> void:
+	var footer: Label = settings_menu.get_meta("footer")
+	L.bind(footer, "text", L.translate_message(message) if not message.is_empty() else L.text(String(settings_menu.get_meta("footer_key"))))
+	footer.add_theme_color_override("font_color", ORANGE if not message.is_empty() else MUTED)
+
+
 func _input(event: InputEvent) -> void:
-	if settings_menu and settings_menu.visible and event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	if settings_menu and settings_menu.visible and event.is_action_pressed("ui_cancel"):
 		_close_settings()
 		get_viewport().set_input_as_handled()
 
@@ -565,7 +635,7 @@ func _make_overlay(parent: Control, node_name: String, title: String, subtitle: 
 	column.add_theme_constant_override("separation", 14)
 	panel.add_child(column)
 	if node_name == "TitleMenu":
-		var eyebrow := _make_label("ENDLESS ARCADE DRIVING", 18, CYAN)
+		var eyebrow := _make_label(L.text("ui.endless_arcade_driving"), 18, CYAN)
 		column.add_child(eyebrow)
 	var heading := _make_label(title, 52 if node_name == "TitleMenu" else 42, WHITE)
 	if node_name == "TitleMenu":
@@ -592,6 +662,7 @@ func _make_overlay(parent: Control, node_name: String, title: String, subtitle: 
 	else:
 		column.add_child(heading)
 	var detail := _make_label(subtitle, 22, MUTED)
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(detail)
 	overlay.set_meta("column", column)
 	overlay.set_meta("panel", panel)
@@ -627,7 +698,11 @@ func _add_secondary_actions(overlay: ColorRect, actions: Array) -> void:
 func _add_footer(overlay: ColorRect, text: String) -> void:
 	var footer := _make_label(text, 22, MUTED)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_column(overlay).add_child(footer)
+	overlay.set_meta("footer", footer)
+	overlay.set_meta("footer_text", text)
+	overlay.set_meta("footer_key", L.key_for_text(text))
 
 
 func _add_controls(overlay: ColorRect) -> void:
@@ -639,7 +714,8 @@ func _add_controls(overlay: ColorRect) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	_column(overlay).add_child(row)
-	for entry in [["A / D  ·  ← / →", "Steer"], ["Shift / Space", "Boost"], ["Esc", "Pause"]]:
+	var controls: Array = [["◀ / ▶", L.text("ui.steer")], [L.text("ui.boost_alt"), L.text("ui.boost")], [L.text("ui.brake"), L.text("ui.brake_alt")], [L.text("ui.pause"), L.text("ui.pause_alt")]] if mobile_mode else [["A / D  ·  ← / →", L.text("ui.steer")], ["Shift / Space", L.text("ui.boost")], ["S / ↓", L.text("ui.brake_alt")], ["Esc", L.text("ui.pause_alt")]]
+	for entry in controls:
 		var column := VBoxContainer.new()
 		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		column.add_theme_constant_override("separation", 3)
@@ -654,8 +730,8 @@ func _add_controls(overlay: ColorRect) -> void:
 
 func _make_button(title: String, primary: bool = false) -> Button:
 	var button := Button.new()
-	button.text = title
-	button.custom_minimum_size = Vector2(0, 64 if primary else 56)
+	L.bind(button, "text", title)
+	button.custom_minimum_size = Vector2(0, 76 if mobile_mode else (64 if primary else 56))
 	button.add_theme_font_size_override("font_size", 25)
 	button.add_theme_color_override("font_color", INK if primary else WHITE)
 	button.add_theme_color_override("font_hover_color", INK if primary else CYAN)
@@ -671,7 +747,7 @@ func _make_button(title: String, primary: bool = false) -> Button:
 func _make_label(value: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.text = value
+	L.bind(label, "text", value)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_shadow_color", Color(0.01, 0.005, 0.035, 0.8))
@@ -704,3 +780,45 @@ func _slider_icon(color: Color) -> ImageTexture:
 	var icon_image := Image.new()
 	icon_image.load_svg_from_string(svg)
 	return ImageTexture.create_from_image(icon_image)
+
+
+func _build_menu_language() -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	_column(menu).add_child(row)
+	var caption := _make_label(L.text("settings.language"), 22, MUTED)
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(caption)
+	menu_language_choice = OptionButton.new()
+	menu_language_choice.add_item("English")
+	menu_language_choice.add_item("Română")
+	menu_language_choice.custom_minimum_size = Vector2(245, 48)
+	menu_language_choice.add_theme_font_size_override("font_size", 22)
+	menu_language_choice.item_selected.connect(func(index: int) -> void:
+		configure_language(index)
+		settings_changed.emit("language", float(index)))
+	row.add_child(menu_language_choice)
+
+
+func configure_language(index: int) -> void:
+	index = clampi(index, 0, 1)
+	if index == L.language_index() and menu_language_choice.selected == index and language_choice.selected == index:
+		return
+	L.set_language("ro" if index == 1 else "en")
+	L.refresh(interface)
+	menu_language_choice.select(L.language_index())
+	language_choice.select(L.language_index())
+	quality_choice.set_item_text(0, L.text("ui.low"))
+	quality_choice.set_item_text(1, L.text("ui.balanced"))
+	quality_choice.set_item_text(2, L.text("ui.high"))
+	resolution_choice.set_item_text(0, L.text("ui.current_window"))
+	quality_choice.tooltip_text = L.text("ui.low_reduces_glow_high_smooths_car_and_road_edges")
+	resolution_choice.tooltip_text = L.text("ui.smaller_windows_draw_faster_fullscreen_uses_your_display_size")
+	for mode in range(mode_buttons.size()):
+		mode_buttons[mode].tooltip_text = [L.text("ui.fair_mode_earn_boost_with_near_misses"), L.text("ui.infinite_boost_mode_unlimited_boost_separate_personal_best"), L.text("ui.systematic_secret_earned_boost_and_police_pursuits")][mode]
+	configure_mode(_mode)
+	combo_label.text = L.text("ui.x_1f_combo") % _last_multiplier
+	update_hazard_warning(_last_hazard)
+	if game_over_menu.visible and not _last_result.is_empty():
+		show_game_over.callv(_last_result)
+	language_changed.emit()

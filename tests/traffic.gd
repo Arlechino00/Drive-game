@@ -3,6 +3,7 @@ extends SceneTree
 const Spawner = preload("res://scripts/obstacle_spawner.gd")
 const Obstacle = preload("res://scripts/obstacle.gd")
 const Player = preload("res://scripts/player_car.gd")
+const Models = preload("res://scripts/traffic_models.gd")
 var failures: int = 0
 var rewards: Array[int] = []
 var clearances: Array[float] = []
@@ -81,14 +82,16 @@ func _test_near_misses() -> void:
 	root.add_child(obstacle)
 	obstacle.near_miss.connect(_on_near_miss)
 	# Use edge clearances; rewards must agree with the real player's footprint.
-	var close_x := Obstacle.PLAYER_HALF_WIDTH + 1.0 + 0.225
-	var very_close_x := Obstacle.PLAYER_HALF_WIDTH + 1.0 + 0.125
-	var near_x := Obstacle.PLAYER_HALF_WIDTH + 1.0 + 0.825
+	var half_width := Models.dimensions(Models.Model.PULSE).x * 0.5
+	var close_x := Obstacle.PLAYER_HALF_WIDTH + half_width + 0.225
+	var very_close_x := Obstacle.PLAYER_HALF_WIDTH + half_width + 0.125
+	var near_x := Obstacle.PLAYER_HALF_WIDTH + half_width + 0.825
 	obstacle.activate(Vector3(0, 0, -7), Obstacle.Kind.CAR, close_x)
 	obstacle.advance_pass(7.0, close_x)
 	await process_frame
 	_check(rewards.is_empty(), "no award while alongside")
-	obstacle.advance_pass(5.0, close_x)
+	var rear_clearance := Obstacle.PLAYER_HALF_LENGTH + Models.dimensions(Models.Model.PULSE).z * 0.5
+	obstacle.advance_pass(rear_clearance - 0.1, close_x)
 	await process_frame
 	_check(rewards.is_empty(), "no award until actual rear clears actual player length")
 	obstacle.advance_pass(0.5, close_x)

@@ -23,6 +23,7 @@ func _run() -> void:
 		game.run_mode = game.GameMode.SECRET
 		game.progress.distance_points = 10000.0
 		game.distance = 2000.0
+		game.run_seconds = 630.0
 		game.speed = 62.0
 		if in_race:
 			var rival: RoadObstacle = game.obstacles._take_obstacle()
@@ -34,23 +35,47 @@ func _run() -> void:
 		_check(game.pursuit.active and is_equal_approx(game.pursuit.gap_m, 64.0), "first traffic impact has one pursuit consequence, racing=%s" % in_race)
 		_check(game.get_score() == 9000 and game.speed == 32.0, "impact has exactly one score/speed penalty")
 		game._on_player_hit()
-		_check(is_equal_approx(game.pursuit.gap_m, 50.0), "later impact closes existing pursuit by fourteen meters")
-	# An actual queued near pass at the terminal clean tick must cancel escape.
+		_check(is_equal_approx(game.pursuit.gap_m, 64.0) and game.pursuit.capture_fraction == 0.0, "later impact preserves physical police position without instant capture")
+	# A rewarded close pass does not erase real separation from distant police.
 	game.start_game()
 	_clear(game)
 	game.run_mode = game.GameMode.SECRET
 	game.distance = 2000.0
+	game.run_seconds = 630.0
 	game.speed = 62.0
 	game.pursuit.begin(game.player.position)
-	game.pursuit.clean_seconds = 15.99
-	game.pursuit._elapsed = 16.0
+	game.pursuit.gap_m = 110.0
+	game.pursuit.disengagement_seconds = 4.99
 	var close_pass: RoadObstacle = game.obstacles._take_obstacle()
 	close_pass.activate(Vector3(2.85, 0, 5.1), RoadObstacle.Kind.CAR, 0.0, 0)
 	game._physics_process(1.0 / 60.0)
 	await process_frame
 	await process_frame
 	_check(game.progress.near_misses == 1, "actual near pass remains awarded")
-	_check(game.pursuit.active and game.secret_escapes == 0 and game.pursuit.clean_seconds == 0.0, "same-tick near pass prevents clean escape")
+	_check(not game.pursuit.active and game.secret_escapes == 1, "same-tick skilled near pass preserves earned distant-police escape")
+	# Traffic behind the player stays alive until distant police can reach it.
+	game.start_game()
+	_clear(game)
+	var behind: RoadObstacle = game.obstacles._take_obstacle()
+	behind.activate(Vector3(5, 0, 60), RoadObstacle.Kind.CAR, 0.0, 0)
+	game.obstacles.advance(0.0, game.distance, 0.0, 1.0 / 60.0, -5.0)
+	_check(behind.active, "traffic 60 m behind remains available for police escapes")
+	# Apex must not overlap a leader that slowed during a long step.
+	_clear(game)
+	game.obstacles._mixed_wave = false
+	game.obstacles.traffic_speed = 20.0
+	game.obstacles._target_traffic_speed = 20.0
+	var leader: RoadObstacle = game.obstacles._take_obstacle()
+	leader.activate(Vector3(5, 0, -16), RoadObstacle.Kind.CAR, 0.0, 0)
+	leader.cruise_speed = 40.0
+	var apex: RoadObstacle = game.obstacles._take_obstacle()
+	apex.activate(Vector3(5, 0, -10), RoadObstacle.Kind.WIDE, 0.0, 8)
+	apex.cruise_speed = 40.0
+	game.obstacles.race_actor = apex
+	game.obstacles.advance(15.0, game.distance, 0.0, 0.5, -5.0)
+	var bumper := apex.half_length + leader.half_length
+	_check(apex.position.z - leader.position.z >= bumper - 0.001, "Apex respects traffic braking within a 0.5 s step")
+	game.obstacles.race_actor = null
 	# A valid but unsupported records file reproduces damaged-save behavior
 	# without intentionally logging a ConfigFile syntax error.
 	game.return_to_menu()
@@ -99,6 +124,10 @@ func _run() -> void:
 
 
 func _clear(game: Node3D) -> void:
+	# Controlled impact/race audit; procedural radars are covered separately.
+	game.enforcement.sector_at = INF
+	game.enforcement.radar_at = INF
+	game.enforcement.sector_end = INF
 	for actor in game.obstacles.obstacle_pool:
 		actor.deactivate()
 

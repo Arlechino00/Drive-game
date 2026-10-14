@@ -20,6 +20,7 @@ func _run() -> void:
 	game.run_seed = 2468
 	var unlimited := OS.get_cmdline_user_args().has("--infinite-boost")
 	var secret := OS.get_cmdline_user_args().has("--secret")
+	var radar_braking := OS.get_cmdline_user_args().has("--radar-braking")
 	# The Infinite layout needs its own fixed seed to include a rare Apex.
 	if unlimited:
 		game.run_seed = 2469
@@ -44,6 +45,10 @@ func _run() -> void:
 	var race_frames := 0
 	var races_started := 0
 	var previously_racing := false
+	var police_frames := 0
+	var police_chases := 0
+	var previously_pursuing := false
+	var safe_radars := 0
 	var boosted_frames := 0
 	var braking_frames := 0
 	var braking_intervals := 0
@@ -60,6 +65,10 @@ func _run() -> void:
 		game.distance = 2300.0
 		game.speed = game.director.MAX_CRUISE_SPEED
 		game.road.advance(game.distance)
+	if OS.get_cmdline_user_args().has("--late-run"):
+		game.run_seconds = 3600.0
+		game.distance = 180000.0
+		game.speed = game.director.get_base_speed(game.distance, game.run_seconds)
 	if pursuit_benchmark:
 		game.obstacles.spawning_enabled = false
 		for obstacle in game.obstacles.obstacle_pool:
@@ -81,6 +90,15 @@ func _run() -> void:
 	var drawn_start := Engine.get_frames_drawn()
 	for frame in range(frames):
 		var frame_start := Time.get_ticks_usec()
+		var radar_was_pending: bool = game.enforcement.radar_pending
+		var previous_fines: int = game.enforcement.fine_points
+		if radar_braking:
+			# React to the actual warning and modulate the real brake key below
+			# the approaching limit, including negative traffic approach speeds.
+			var warning_distance: float = game.enforcement.radar_at - game.distance
+			var needs_limit: bool = game.enforcement.radar_pending and warning_distance <= game.enforcement.warning_distance
+			var legal_speed: float = float(game.enforcement.next_limit - 1) / 3.6
+			_key(KEY_S, needs_limit and game.speed > legal_speed)
 		var target_x := _route_target(game, game.player.position.x)
 		if unlimited and not benchmark and not rendering:
 			# Release the real boost key when Apex and nearby traffic leave
@@ -119,6 +137,13 @@ func _run() -> void:
 					observed_models[actor.model_id] = true
 		if game.progress.boosting:
 			boosted_frames += 1
+		if radar_was_pending and not game.enforcement.radar_pending and game.enforcement.fine_points == previous_fines:
+			safe_radars += 1
+		if game.pursuit.active:
+			police_frames += 1
+			if not previously_pursuing:
+				police_chases += 1
+		previously_pursuing = game.pursuit.active
 		if game.state != game.GameState.PLAYING:
 			print("AUTOPILOT CONTACT: frame=%d player=%.3f speed=%.3f target=%.3f velocity=%.3f" % [frame, game.player.position.x, game.speed, target_x, velocity])
 			for actor in game.obstacles.obstacle_pool:
@@ -134,15 +159,21 @@ func _run() -> void:
 		if frame % 120 == 0:
 			var nodes: int = _count(game)
 			maximum_nodes = maxi(maximum_nodes, nodes)
-			_check(nodes <= fixed_nodes + 1 + vehicle_nodes * 12, "bounded complete scene nodes")
+			_check(nodes <= fixed_nodes + 1 + vehicle_nodes * game.obstacles.MAX_POOL_SIZE, "bounded complete scene nodes")
 			_check(int(Performance.get_monitor(Performance.MEMORY_STATIC)) < initial_memory + 24 * 1024 * 1024, "bounded live memory")
-			_check(game.obstacles.obstacle_pool.size() <= 12, "bounded live traffic")
+			_check(game.obstacles.obstacle_pool.size() <= game.obstacles.MAX_POOL_SIZE, "bounded live traffic")
 	if not benchmark and not rendering:
-		_check(races_started > 0 and race_frames > 0, "seeded survival run exercises live Apex races")
-		if unlimited:
+		if radar_braking:
+			_check(safe_radars >= 2 and game.enforcement.fine_points == 0, "responsive warning/brake driver clears radars without fines")
+		else:
+			# The speeding driver exercises pursuit, including concurrent Apex;
+			# generated finite-fuel races also isolate the actual win conditions.
+			_check(police_chases > 0 and police_frames > 0 and game.enforcement.fine_points > 0, "seeded survival exercises real radar police and score penalties")
+		if unlimited and not radar_braking:
 			_check(boosted_frames >= frames * 0.90, "Infinite endurance sustains boost for at least 90 percent of frames")
 	_set_steer(0)
 	_key(KEY_SHIFT, false)
+	_key(KEY_S, false)
 	var elapsed := (Time.get_ticks_msec() - start_time) / 1000.0
 	var rendered_frames := Engine.get_frames_drawn() - drawn_start
 	if cold:
@@ -188,6 +219,7 @@ func _run() -> void:
 	await process_frame
 	if failures == 0:
 		print("CONTINUOUS PASS: %s, %d physics frames, %.2f km, max %d nodes, stable memory; %d races/%d race frames%s" % ["Secret" if secret else ("Infinite Boost" if unlimited else "Fair"), frames, final_distance / 1000.0, maximum_nodes, races_started, race_frames, "; %d drawn frames / %.1f rendered fps" % [rendered_frames, rendered_frames / maxf(elapsed, 0.001)] if rendering else ""])
+		print("RADAR ENCOUNTERS: %d police chases / %d police frames; %d safe radars" % [police_chases, police_frames, safe_radars])
 		if unlimited and not benchmark and not rendering:
 			print("INFINITE INPUT: %d boosted frames; %d release frames across %d intervals" % [boosted_frames, braking_frames, braking_intervals])
 	quit(1 if failures > 0 else 0)

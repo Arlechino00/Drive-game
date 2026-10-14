@@ -35,6 +35,8 @@ func _test_race_rules() -> void:
 			race.hit_pothole()
 		actor.position.z = fixture.lead
 		_check(race.advance(20.0, false) == fixture.result, "finish requires actual lead, boost and no potholes: %s" % fixture)
+		var expected_reason := "won" if fixture.result == 1 else ("tied" if fixture.lead == 0.0 else ("ahead" if fixture.lead < 0.0 else ("pothole" if not fixture.clean else "boost")))
+		_check(race.outcome_reason == expected_reason, "result distinguishes rival lead from unmet challenge: %s" % fixture)
 		_check(not race.active and race.advance(1.0, true) == 0, "each race resolves once")
 		race.reset()
 		_check(not actor.racing and race.actor == null and race.clean and race.boost_seconds == 0.0, "race reset clears requirements and actor")
@@ -54,7 +56,7 @@ func _test_countdown_acceleration() -> void:
 		_check(actor.cruise_speed - before <= race.INITIAL_ACCELERATION / 60.0 + 0.000001, "initial acceleration has no speed jump")
 		_check(race.advance(1.0 / 60.0, true) == 0, "countdown cannot finish a race")
 	_check(race.countdown_remaining == 0.0 and race.elapsed < 0.000001 and race.boost_seconds < 0.000001, "three countdown seconds consume no race or boost progress")
-	_check(is_equal_approx(actor.cruise_speed, 63.0), "rival reaches competitive speed during countdown")
+	_check(is_equal_approx(actor.cruise_speed, 62.0 + Race.SPEED_ADVANTAGE), "rival reaches competitive speed during countdown")
 	race.advance(0.25, true)
 	_check(is_equal_approx(race.elapsed, 0.25) and is_equal_approx(race.boost_seconds, 0.25), "GO starts actual driving race and boost time")
 	race.reset()
@@ -109,7 +111,7 @@ func _test_spawn_catalog() -> void:
 		if actor.model_id == Models.Model.APEX:
 			apex_count += 1
 		actor.deactivate()
-	_check(seen.size() == 10 and apex_count >= 20 and apex_count <= 60, "all ten designs spawn; Apex appears more often but remains uncommon")
+	_check(seen.size() == Models.COUNT and apex_count >= 20 and apex_count <= 60, "all designs (incl. motorcycle) spawn; Apex appears more often but remains uncommon")
 	print("APEX CATALOG: %d Apex encounters in 600 eligible draws" % apex_count)
 	spawner.reset_spawner(741)
 	for actor in spawner.obstacle_pool:
@@ -257,7 +259,16 @@ func _test_integration() -> void:
 	game.apex_race.boost_seconds = 5.0
 	pothole_actor.position.z = 20.0
 	game._update_apex_race(33.0)
-	_check(game.apex_ui.notification_title.text == "APEX WINS", "pothole blocks reward even after recovering and finishing ahead")
+	_check(game.apex_ui.notification_title.text == "CHALLENGE FAILED", "pothole blocks reward even after recovering and finishing ahead")
+	_check("finished ahead" in game.apex_ui.notification_detail.text and "pothole" in game.apex_ui.notification_detail.text, "ahead pothole result describes actual finish and reason")
+	game.start_game()
+	_clear(game)
+	var boost_actor := game.obstacles._take_obstacle() as RoadObstacle
+	boost_actor.activate(Vector3(-5, 0, -13), 3, 0, Models.Model.APEX)
+	game._update_apex_race(0.0)
+	boost_actor.position.z = 30.0
+	game._update_apex_race(33.0)
+	_check(game.apex_ui.notification_title.text == "CHALLENGE FAILED" and "boost target" in game.apex_ui.notification_detail.text, "missing boost with actual lead cannot claim Apex won")
 	game.return_to_menu()
 	_check(not game.apex_ui.race_panel.visible and not game.apex_ui.reward_panel.visible, "menu clears quest overlays")
 	game.audio.stop_all()
@@ -271,6 +282,10 @@ func _test_integration() -> void:
 
 
 func _clear(game: Node) -> void:
+	# This fixture isolates race rewards; radar/Apex overlap has its own test.
+	game.enforcement.sector_at = INF
+	game.enforcement.radar_at = INF
+	game.enforcement.sector_end = INF
 	for actor in game.obstacles.obstacle_pool:
 		actor.deactivate()
 

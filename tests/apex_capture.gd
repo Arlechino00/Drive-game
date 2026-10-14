@@ -84,6 +84,11 @@ func _capture() -> void:
 func _start_race(game: Node3D, secret: bool) -> void:
 	_key(false)
 	game.start_game()
+	# Radar interruption has its own integration checks. This fixture jumps
+	# forward to a race and must not cross an unrelated camera while ticking.
+	game.enforcement.sector_at = INF
+	game.enforcement.radar_at = INF
+	game.enforcement.sector_end = INF
 	for actor in game.obstacles.obstacle_pool:
 		actor.deactivate()
 	game.run_mode = game.GameMode.SECRET if secret else game.GameMode.FAIR

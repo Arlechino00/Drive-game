@@ -24,8 +24,8 @@ func _run() -> void:
 	for frame in range(900):
 		speed = move_toward(speed, director.get_base_speed(distance), 12.0 / 60.0)
 		distance += speed / 60.0
-	_check(director.INITIAL_SPEED * 3.6 >= 160.0, "fast opening speed")
-	_check(speed * 3.6 >= 220.0, "cruising speed arrives within fifteen seconds")
+	_check(director.INITIAL_SPEED * 3.6 >= 130.0, "accessible opening speed")
+	_check(speed > director.INITIAL_SPEED and speed * 3.6 < 150.0, "speed builds smoothly during the first fifteen seconds")
 	var game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 	var records := ConfigFile.new()

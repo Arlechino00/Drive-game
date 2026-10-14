@@ -5,6 +5,7 @@ const FORMAT_VERSION := 1
 const MAX_FILE_BYTES := 131072
 const DEFAULT_CONFIGURATION_PATH := "res://config/secret_mode.cfg"
 const EXTERNAL_CONFIGURATION_FILENAME := "secret_mode.cfg"
+const SAVE_LOCK_SCRIPT := preload("res://scripts/save_lock.gd")
 
 var secret_unlocked: bool = false
 var configuration_error: String = ""
@@ -14,6 +15,7 @@ var configuration_path: String
 var _access_phrase: String = ""
 var _unlock_fingerprint: String = ""
 var _uses_default_configuration: bool = false
+var _save_lock := SAVE_LOCK_SCRIPT.new()
 
 
 func _init(storage_path: String = "user://secret_access.cfg", config_path: String = "") -> void:
@@ -147,11 +149,11 @@ func _is_hex(value: String) -> bool:
 
 func _acquire_lock() -> bool:
 	# Serialize unlock saves from simultaneous local game instances.
-	return DirAccess.make_dir_absolute(save_path + ".lock") == OK
+	return _save_lock.acquire(save_path + ".lock") == OK
 
 
 func _release_lock() -> void:
-	DirAccess.remove_absolute(save_path + ".lock")
+	_save_lock.release()
 
 
 func _save(fingerprint: String) -> Error:

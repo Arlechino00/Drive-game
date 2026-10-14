@@ -5,6 +5,7 @@ const MAX_NAME_LENGTH := 24
 const MAX_ENTRIES_PER_PARTITION := 100
 const FORMAT_VERSION := 1
 const MAX_FILE_BYTES := 1048576
+const SAVE_LOCK_SCRIPT := preload("res://scripts/save_lock.gd")
 
 var player_name: String = ""
 var save_path: String
@@ -57,12 +58,12 @@ func recover_records() -> Error:
 	# Recovery is explicit. Even unsupported future-format data is preserved
 	# byte-for-byte before a current-format replacement is attempted.
 	last_recovery_backup_path = ""
-	var lock_path := save_path + ".lock"
-	var error := DirAccess.make_dir_absolute(lock_path)
+	var lock := SAVE_LOCK_SCRIPT.new()
+	var error := lock.acquire(save_path + ".lock")
 	if error != OK:
-		return ERR_BUSY if DirAccess.dir_exists_absolute(lock_path) else error
+		return error
 	error = _recover_locked()
-	DirAccess.remove_absolute(lock_path)
+	lock.release()
 	return error
 
 
@@ -210,12 +211,12 @@ func _trim_entries(entries: Array[Dictionary]) -> void:
 func _save(name: String, entries: Array[Dictionary], update_name: bool) -> Error:
 	# Hold the same directory lock across reload, merge and atomic replacement.
 	# Contention fails immediately; never touch another writer's temporary file.
-	var lock_path := save_path + ".lock"
-	var error := DirAccess.make_dir_absolute(lock_path)
+	var lock := SAVE_LOCK_SCRIPT.new()
+	var error := lock.acquire(save_path + ".lock")
 	if error != OK:
-		return ERR_BUSY if DirAccess.dir_exists_absolute(lock_path) else error
+		return error
 	error = _save_locked(name, entries, update_name)
-	DirAccess.remove_absolute(lock_path)
+	lock.release()
 	return error
 
 

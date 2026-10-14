@@ -3,6 +3,7 @@ extends SceneTree
 const Spawner = preload("res://scripts/obstacle_spawner.gd")
 const Obstacle = preload("res://scripts/obstacle.gd")
 const Player = preload("res://scripts/player_car.gd")
+const Models = preload("res://scripts/traffic_models.gd")
 const POTHOLE: int = 4
 const ROADWORKS: int = 5
 var failures: int = 0
@@ -63,13 +64,8 @@ func _test_swept_corner_contacts() -> void:
 		outcomes.append(ROADWORKS)
 		contact_positions.append(obstacle.position))
 	obstacle.near_miss.connect(func(points, _clearance): rewards.append(points))
-	# Literal audit fixtures: no endpoint overlap, but their corners touch
-	# during one 60 Hz tick at 80 m/s road and 15 m/s lateral speed.
-	for fixture in [
-		{"kind": Obstacle.Kind.CAR, "x": 2.6, "z": -5.3, "movement": 66.0 / 60.0, "contact_z": -5.2},
-		{"kind": POTHOLE, "x": 2.9, "z": -4.6, "movement": 80.0 / 60.0, "contact_z": -4.5},
-		{"kind": ROADWORKS, "x": 3.6, "z": -9.1, "movement": 80.0 / 60.0, "contact_z": -9.0},
-	]:
+	# No endpoint overlap, but corners touch within a 60 Hz tick around actual edges.
+	for fixture in _corner_fixtures():
 		player.position.x = fixture.x
 		obstacle.activate(Vector3(0.0, 0.0, fixture.z), fixture.kind, fixture.x)
 		for frame in range(4):
@@ -102,11 +98,13 @@ func _test_swept_close_pass() -> void:
 	var rewards: Array[int] = []
 	obstacle.player_hit.connect(func(): outcomes.append(1))
 	obstacle.near_miss.connect(func(points, _clearance): rewards.append(points))
-	obstacle.activate(Vector3(0.0, 0.0, -5.3), Obstacle.Kind.CAR, 2.75)
-	obstacle.advance_pass(66.0 / 60.0, 3.0)
+	var fixture: Dictionary = _corner_fixtures()[0]
+	var safe_x: float = fixture.x + 0.075
+	obstacle.activate(Vector3(0.0, 0.0, fixture.z), Obstacle.Kind.CAR, safe_x)
+	obstacle.advance_pass(66.0 / 60.0, safe_x + 0.25)
 	_check(outcomes.is_empty() and not obstacle.pass_collided and obstacle.active, "non-overlapping corner remains a safe close pass")
 	for frame in range(10):
-		obstacle.advance_pass(66.0 / 60.0, 3.0)
+		obstacle.advance_pass(66.0 / 60.0, safe_x + 0.25)
 		await process_frame
 	_check(rewards == [500] and outcomes.is_empty(), "safe 60 Hz close pass earns exactly one normal near-miss reward")
 	obstacle.free()
@@ -121,15 +119,16 @@ func _test_reentrant_contact_reuse() -> void:
 		obstacle.deactivate()
 	var source = spawner.obstacle_pool[0]
 	var following = spawner.obstacle_pool[1]
-	source.activate(Vector3(0.0, 0.0, -5.3), Obstacle.Kind.CAR, 2.6)
-	following.activate(Vector3(0.0, 0.0, -30.0), Obstacle.Kind.CAR, 2.6)
+	var fixture: Dictionary = _corner_fixtures()[0]
+	source.activate(Vector3(0.0, 0.0, fixture.z), Obstacle.Kind.CAR, fixture.x)
+	following.activate(Vector3(0.0, 0.0, -30.0), Obstacle.Kind.CAR, fixture.x)
 	var outcomes: Array[int] = []
 	spawner.player_hit.connect(func():
 		outcomes.append(source.kind)
 		# A synchronous consumer can reset/reuse the pool during emission.
 		source.activate(Vector3(5.0, 0.0, -90.0), POTHOLE, 6.2)
 		following.activate(Vector3(-5.0, 0.0, -120.0), ROADWORKS, 6.2))
-	spawner.advance(80.0 / 60.0, 0.0, 1.0, 1.0 / 60.0, 2.85)
+	spawner.advance(80.0 / 60.0, 0.0, 1.0, 1.0 / 60.0, fixture.x + 0.25)
 	_check(outcomes == [Obstacle.Kind.CAR], "spawner forwards one swept contact before reentrant pool reuse")
 	_check(source.position.is_equal_approx(Vector3(5.0, 0.0, -90.0)) and source.active and not source.pass_collided, "old sweep cannot mutate a newly activated pooled obstacle")
 	_check(following.position.is_equal_approx(Vector3(-5.0, 0.0, -120.0)), "contact stops spawner mutation after synchronous callback")
@@ -142,17 +141,18 @@ func _test_nonfatal_contact_motion() -> void:
 	spawner.reset_spawner(81)
 	for obstacle in spawner.obstacle_pool:
 		obstacle.deactivate()
+	var fixture: Dictionary = _corner_fixtures()[0]
 	# Place two parts of a future row around the hit actor in pool order.
 	var before = spawner._take_obstacle()
-	before.activate(Vector3(-5.0, 0.0, -70.0), Obstacle.Kind.CAR, 2.6)
+	before.activate(Vector3(-5.0, 0.0, -70.0), Obstacle.Kind.CAR, fixture.x)
 	var source = spawner._take_obstacle()
-	source.activate(Vector3(0.0, 0.0, -5.3), Obstacle.Kind.CAR, 2.6)
+	source.activate(Vector3(0.0, 0.0, fixture.z), Obstacle.Kind.CAR, fixture.x)
 	var after = spawner._take_obstacle()
-	after.activate(Vector3(5.0, 0.0, -70.0), Obstacle.Kind.CAR, 2.6)
+	after.activate(Vector3(5.0, 0.0, -70.0), Obstacle.Kind.CAR, fixture.x)
 	var serial: int = source._activation_serial
 	# Generation is due this tick, but must not immediately reuse the hit actor.
 	spawner._next_row_z = -285.5
-	spawner.advance(80.0 / 60.0, 0.0, 1.0, 1.0 / 60.0, 2.85)
+	spawner.advance(80.0 / 60.0, 0.0, 1.0, 1.0 / 60.0, fixture.x + 0.25)
 	_check(is_equal_approx(before.position.z, -68.9) and is_equal_approx(after.position.z, -68.9), "surviving an impact advances every other actor and keeps a row aligned")
 	_check(not source.active and source._activation_serial == serial, "hit actor is not reused during the same advancement tick")
 	spawner.free()
@@ -175,11 +175,7 @@ func _test_main_scene_corner_contacts() -> void:
 	game.obstacles.pothole_hit.connect(func(): outcomes.append(POTHOLE))
 	game.obstacles.roadworks_entered.connect(func(): outcomes.append(ROADWORKS))
 	for mode in [game.GameMode.INFINITE_BOOST, game.GameMode.SECRET]:
-		for fixture in [
-			{"kind": Obstacle.Kind.CAR, "x": 2.6, "z": -5.3},
-			{"kind": POTHOLE, "x": 2.9, "z": -4.6},
-			{"kind": ROADWORKS, "x": 3.6, "z": -9.1},
-		]:
+		for fixture in _corner_fixtures():
 			game.selected_mode = mode
 			game.start_game()
 			for obstacle in game.obstacles.obstacle_pool:
@@ -214,7 +210,7 @@ func _test_main_scene_corner_contacts() -> void:
 				if fixture.kind == ROADWORKS:
 					_check(not game.progress.score_valid and game.get_score() == 0, "ordinary swept worksite contact disqualifies score")
 				else:
-					_check(game.aftermath.wreck_kind == Obstacle.Kind.CAR and is_equal_approx(source.position.z, -5.2), "ordinary swept traffic aftermath retains source kind/contact position")
+					_check(game.aftermath.wreck_kind == Obstacle.Kind.CAR and is_equal_approx(source.position.z, fixture.contact_z), "ordinary swept traffic aftermath retains source kind/contact position")
 			for frame in range(4):
 				await physics_frame
 			await process_frame
@@ -425,10 +421,19 @@ func _check_encounters(spawner) -> void:
 			var front_time: float = -front / (player_speed - float(rows[front].speed))
 			var back_time: float = -z / (player_speed - float(rows[z].speed))
 			_check((back_time - front_time) * player_speed >= 63.98, "catch times retain a reachable 64 m reaction interval")
-			var front_clears: float = (-front + float(rows[front].half_length) + 3.0) / (player_speed - float(rows[front].speed))
-			var back_enters: float = (-z - float(rows[z].half_length) - 3.0) / (player_speed - float(rows[z].speed))
+			var front_clears: float = (-front + float(rows[front].half_length) + Obstacle.PLAYER_HALF_LENGTH) / (player_speed - float(rows[front].speed))
+			var back_enters: float = (-z - float(rows[z].half_length) - Obstacle.PLAYER_HALF_LENGTH) / (player_speed - float(rows[z].speed))
 			_check(back_enters - front_clears >= 0.70, "actual collision footprints leave time to finish an adjacent lane change")
 
+
+func _corner_fixtures() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for kind in [Obstacle.Kind.CAR, POTHOLE, ROADWORKS]:
+		var size: Vector3 = Models.dimensions(Models.Model.PULSE) if kind == Obstacle.Kind.CAR else (Vector3(2.6, 0.22, 3.0) if kind == POTHOLE else Vector3(4.0, 1.8, 12.0))
+		var edge_x := Obstacle.PLAYER_HALF_WIDTH + size.x * 0.5
+		var edge_z := Obstacle.PLAYER_HALF_LENGTH + size.z * 0.5
+		result.append({"kind": kind, "x": edge_x - 0.05, "z": -edge_z - 0.1, "movement": (66.0 if kind == Obstacle.Kind.CAR else 80.0) / 60.0, "contact_z": -edge_z})
+	return result
 
 func _snapshot(spawner) -> Array[String]:
 	var values: Array[String] = []

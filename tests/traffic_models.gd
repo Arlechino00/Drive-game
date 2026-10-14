@@ -20,8 +20,9 @@ func _run() -> void:
 	await process_frame
 	var bodies: Array[Mesh] = []
 	var unique_widths: Dictionary = {}
-	var expected_widths: Array[float] = [2.0, 2.4, 2.8, 3.1, 1.8, 3.0, 2.3, 3.2, 2.6, 2.7]
-	for model in range(Models.COUNT):
+	var expected_widths: Array[float] = [2.16, 2.592, 3.024, 3.348, 1.944, 3.24, 2.484, 3.456, 2.808, 2.916]
+	# Car catalog contracts; the motorcycle is not a four-wheel hull.
+	for model in range(Models.Model.MOTO):
 		actor.activate(Vector3.ZERO, Models.kind_for_model(model), 0.0, model)
 		second.activate(Vector3(8, 0, 0), Models.kind_for_model(model), 0.0, model)
 		_check(actor.model_id == model and actor.kind == Models.kind_for_model(model), "model retains identity and physics category")
@@ -39,10 +40,10 @@ func _run() -> void:
 		var size := Models.dimensions(model)
 		unique_widths[size.x] = true
 		_check(is_equal_approx(size.x, expected_widths[model]), "per-model width contract: " + Models.display_name(model))
-		var kind_size: Vector3 = [Vector3(2.0, 1.05, 4.4), Vector3(2.4, 1.9, 5.0), Vector3(2.8, 1.4, 4.8)][Models.kind_for_model(model) - 1]
+		var kind_size: Vector3 = [Vector3(2.16, 1.05, 4.752), Vector3(2.592, 1.9, 5.4), Vector3(3.024, 1.4, 5.184)][Models.kind_for_model(model) - 1]
 		_check(is_equal_approx(size.y, kind_size.y) and is_equal_approx(size.z, kind_size.z), "height and length category preserved")
 		if model < 3:
-			_check(size.is_equal_approx(kind_size), "original three vehicle footprints unchanged")
+			_check(size.is_equal_approx(kind_size), "default vehicle footprints include the approved eight percent growth")
 		_check(is_equal_approx(body.mesh.get_aabb().size.x, size.x), "visible body uses the full per-model width")
 		_check(actor._collision.shape.size.is_equal_approx(size), "catalog matches actual collision dimensions")
 		for part in visual.find_children("*", "MeshInstance3D", true, false):
@@ -60,7 +61,8 @@ func _run() -> void:
 			_check(lights.size() == 4 and visual.has_node("ApexRearWing"), "Apex has four round tails and tall wing")
 		if model == Models.Model.HAULER:
 			_check(visual.has_node("OpenBedFloor") and visual.has_node("Tailgate") and visual.find_children("BedSide*", "MeshInstance3D", false, false).size() == 2, "pickup has open bed with two sides and tailgate")
-	_check(unique_widths.size() == Models.COUNT, "all ten models have distinct physical widths")
+	_check(unique_widths.size() == Models.Model.MOTO, "all ten models have distinct physical widths")
+	actor.activate(Vector3.ZERO, Models.kind_for_model(Models.Model.MOTO), 0.0, Models.Model.MOTO)
 	var count := _node_count(actor)
 	var mesh_counts := Vector3i(Meshes._hulls.size(), Meshes._boxes.size(), Meshes._cylinders.size())
 	var material_count: int = Models._materials.size()
@@ -124,21 +126,23 @@ func _test_width_contacts() -> void:
 	actor.activate(Vector3.ZERO, Models.kind_for_model(Models.Model.VECTOR), 3.0, Models.Model.VECTOR)
 	for frame in range(4):
 		await physics_frame
-	_check(events.hits == 0 and actor.active, "real 1.8m Vector leaves a gap for player at x3.0")
+	_check(events.hits == 0 and actor.active, "real Vector leaves a gap for player at x3.0")
 	actor.advance_pass(8.0, 3.0)
 	await process_frame
-	_check(events.awards == [250] and is_equal_approx(events.clearances[0], 0.45), "Vector physical footprint produces 0.45m close-pass clearance")
+	var vector_clearance := 3.0 - Obstacle.PLAYER_HALF_WIDTH - Models.dimensions(Models.Model.VECTOR).x * 0.5
+	_check(events.awards == [250] and is_equal_approx(events.clearances[0], vector_clearance), "Vector physical footprint produces the correct edge clearance")
 	actor.activate(Vector3.ZERO, Models.kind_for_model(Models.Model.HAULER), 3.0, Models.Model.HAULER)
 	for frame in range(4):
 		await physics_frame
-	_check(events.hits == 1 and actor.pass_collided and not actor.active, "real 3.2m Hauler overlaps same player position by 0.25m")
+	_check(events.hits == 1 and actor.pass_collided and not actor.active, "real Hauler overlaps same player position")
 	_check(events.awards == [250], "wide-body contact earns no close-pass points")
 	actor.activate(Vector3(0, 0, -8), Models.kind_for_model(Models.Model.VECTOR), 3.0, Models.Model.VECTOR)
 	_check(not actor.advance_pass(16.0, 3.0), "Vector swept pass clears same x3.0 path")
 	await process_frame
-	_check(events.awards == [250, 250] and is_equal_approx(events.clearances[-1], 0.45), "Vector sweep uses its narrow width for reward tier")
+	_check(events.awards == [250, 250] and is_equal_approx(events.clearances[-1], vector_clearance), "Vector sweep uses its narrow width for reward tier")
 	actor.activate(Vector3(0, 0, -8), Models.kind_for_model(Models.Model.HAULER), 3.0, Models.Model.HAULER)
-	_check(actor.advance_pass(16.0, 3.0) and events.hits == 2 and is_equal_approx(actor.minimum_clearance, -0.25), "Hauler sweep catches wider body on identical path")
+	var hauler_clearance := 3.0 - Obstacle.PLAYER_HALF_WIDTH - Models.dimensions(Models.Model.HAULER).x * 0.5
+	_check(actor.advance_pass(16.0, 3.0) and events.hits == 2 and is_equal_approx(actor.minimum_clearance, hauler_clearance), "Hauler sweep catches wider body on identical path")
 	await process_frame
 	_check(events.awards == [250, 250], "swept wide collision suppresses near-miss reward")
 	# Each model's own edge, rather than its old physics category, decides contact.

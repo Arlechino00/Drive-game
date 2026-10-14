@@ -22,7 +22,7 @@ if ((Get-Content -LiteralPath (Join-Path $templateDirectory 'version.txt') -Raw)
 $version = Invoke-BoundedProcess -Executable $GodotPath -Arguments @('--version') -LogPath (Join-Path $buildPath 'version') -TimeoutSeconds $TimeoutSeconds
 if ($version.StdOut.Trim() -notmatch '^4\.6\.1\.stable') { throw 'Release builds require Godot 4.6.1 stable' }
 # A fresh staged source makes the export independent of local editor caches.
-foreach ($folder in @('scripts', 'scenes', 'shaders', 'config')) {
+foreach ($folder in @('scripts', 'scenes', 'shaders', 'config', 'localization')) {
     Copy-Item -LiteralPath (Join-Path $projectPath $folder) -Destination $source -Recurse
 }
 foreach ($file in @('project.godot', 'logo.png')) { Copy-Item -LiteralPath (Join-Path $projectPath $file) -Destination $source }
@@ -30,8 +30,10 @@ New-Item -ItemType Directory (Join-Path $source 'tests') | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectPath 'tests/exported_release.gd') -Destination (Join-Path $source 'tests')
 $preset = Get-Content -LiteralPath (Join-Path $projectPath 'export_presets.cfg') -Raw
 $escapedTemplate = $template.Replace('\', '/').Replace('"', '\"')
-$preset = $preset.Replace('custom_template/release=""', ('custom_template/release="' + $escapedTemplate + '"'))
-Set-Content -LiteralPath (Join-Path $source 'export_presets.cfg') -Value $preset -Encoding UTF8
+# Only the first (Windows Desktop) preset receives the Windows template.
+$preset = ([regex]'custom_template/release=""').Replace($preset, ('custom_template/release="' + $escapedTemplate + '"'), 1)
+# Godot rejects a BOM, which Windows PowerShell 5.1 writes for -Encoding UTF8.
+[IO.File]::WriteAllText((Join-Path $source 'export_presets.cfg'), $preset, (New-Object Text.UTF8Encoding $false))
 $savedAppData = $env:APPDATA
 $savedLocalAppData = $env:LOCALAPPDATA
 try {

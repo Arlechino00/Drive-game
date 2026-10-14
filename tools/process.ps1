@@ -20,6 +20,8 @@ function Invoke-BoundedProcess {
     else { $start.NoNewWindow = $true }
     if ($nativeArguments) { $start.ArgumentList = $nativeArguments }
     $process = Start-Process @start
+    # Windows PowerShell 5.1 reports a null ExitCode unless the handle is opened.
+    $null = $process.Handle
     try {
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             # Kill this process and its children, including the Godot console wrapper.

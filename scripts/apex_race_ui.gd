@@ -1,6 +1,8 @@
 class_name ApexRaceUI
 extends Node
 
+const L = preload("res://scripts/localization.gd")
+
 const NOTIFICATION_SECONDS := 5.0
 const FEED_ROAD_LAYER := 1 << 19
 
@@ -31,6 +33,10 @@ var _road_marking: MultiMeshInstance3D
 var _road_cyan_edges: Array[MeshInstance3D] = []
 var _road_pink_edges: Array[MeshInstance3D] = []
 var _dash_phase: float = 0.0
+var _last_race: Array = [false, 0.0, 0.0, 0.0, true, 0.0, 4.0, 0.0]
+var _notification_kind: int = 0
+var _challenge_boost: float = 4.0
+var _result_reason: String = "ahead"
 
 
 func attach(base_ui: GameUI) -> void:
@@ -41,9 +47,9 @@ func attach(base_ui: GameUI) -> void:
 	# notification clock only while the run and its scene tree are unpaused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	race_panel = _panel("ApexRaceStatus", 420.0, 24.0, 150.0, GameUI.CYAN)
-	countdown_label = _label(race_panel, "APEX RACE", 26, GameUI.WHITE)
-	lead_label = _label(race_panel, "SIDE BY SIDE", 22, GameUI.CYAN)
-	requirements_label = _label(race_panel, "BOOST 0.0/4.0s  ·  CLEAN", 20, GameUI.MUTED)
+	countdown_label = _label(race_panel, L.text("ui.apex_race"), 26, GameUI.WHITE)
+	lead_label = _label(race_panel, L.text("ui.side_by_side"), 22, GameUI.CYAN)
+	requirements_label = _label(race_panel, L.text("ui.boost_0_0_4_0s_clean"), 20, GameUI.MUTED)
 	notification_panel = _panel("ApexNotification", 460.0, 292.0, 500.0, GameUI.MAGENTA)
 	notification_title = _label(notification_panel, "", 28, GameUI.MAGENTA)
 	notification_detail = _label(notification_panel, "", 22, GameUI.WHITE)
@@ -58,33 +64,47 @@ func attach(base_ui: GameUI) -> void:
 	for overlay in [_ui.menu, _ui.pause_menu, _ui.game_over_menu, _ui.settings_menu]:
 		overlay.visibility_changed.connect(_sync_visibility)
 	reset_ui()
+	_ui.language_changed.connect(_refresh_language)
 
 
 func update_race(active: bool, remaining: float, lead_m: float, boost_seconds: float, clean: bool, reward_remaining: float, required_boost_seconds: float = 4.0, countdown_remaining: float = 0.0) -> void:
+	_last_race[0] = active
+	_last_race[1] = remaining
+	_last_race[2] = lead_m
+	_last_race[3] = boost_seconds
+	_last_race[4] = clean
+	_last_race[5] = reward_remaining
+	_last_race[6] = required_boost_seconds
+	_last_race[7] = countdown_remaining
 	_race_active = active
 	_lead_m = lead_m
 	_reward_remaining = maxf(0.0, reward_remaining)
-	countdown_label.text = "APEX RACE  ·  %ds" % ceili(maxf(0.0, remaining))
+	countdown_label.text = L.text("ui.apex_race_ds") % ceili(maxf(0.0, remaining))
 	if countdown_remaining > 0.0:
-		countdown_label.text = "GET READY  ·  %d" % ceili(countdown_remaining)
+		countdown_label.text = L.text("ui.get_ready_d") % ceili(countdown_remaining)
 	if absf(lead_m) < 0.5:
-		lead_label.text = "SIDE BY SIDE"
+		lead_label.text = L.text("ui.side_by_side")
 	else:
-		lead_label.text = "%s AHEAD  %dm" % ["YOU" if lead_m > 0.0 else "APEX", roundi(absf(lead_m))]
+		lead_label.text = L.text("ui.s_ahead_dm") % [L.text("ui.you") if lead_m > 0.0 else L.text("ui.apex"), roundi(absf(lead_m))]
 	lead_label.add_theme_color_override("font_color", GameUI.CYAN if lead_m >= 0.0 else GameUI.ORANGE)
 	# Truncate tenths so a nearly completed target does not promise completion.
 	var target := maxf(0.0, required_boost_seconds)
 	var shown_boost := floorf(clampf(boost_seconds, 0.0, target) * 10.0) / 10.0
-	requirements_label.text = "BOOST %.1f/%.1fs  ·  %s" % [shown_boost, target, "CLEAN" if clean else "POTHOLE HIT"]
+	requirements_label.text = L.text("ui.boost_1f_1fs_s") % [shown_boost, target, L.text("ui.clean") if clean else L.text("ui.pothole_hit")]
 	requirements_label.add_theme_color_override("font_color", GameUI.MUTED if clean else GameUI.ORANGE)
-	reward_label.text = "APEX REWARD  ·  UNLIMITED %.1fs" % _reward_remaining
+	reward_label.text = L.text("ui.apex_reward_unlimited_1fs") % _reward_remaining
 	_update_opponent_caption()
 	_sync_visibility()
 
 
 func show_challenge(opponent_x: float = -5.0, required_boost_seconds: float = 4.0) -> void:
+	_notification_kind = 1
+	_challenge_boost = required_boost_seconds
 	_place_notification(opponent_x)
-	_notify("APEX CHALLENGES YOU", "3s countdown, then race for 30s. Finish ahead.\nBOOST TARGET: %ds during the race. Avoid potholes.\nFull tank: 3.7s. Earn close passes to refill.\nAfter countdown, hold Shift / Space to boost." % roundi(required_boost_seconds), GameUI.MAGENTA)
+	var detail := L.text("ui.3s_countdown_then_race_for_30s_finish_ahead_boost_target_ds_durin") % roundi(required_boost_seconds)
+	if _ui.mobile_mode:
+		detail = L.text("ui.3s_countdown_30s_race_finish_ahead_boost_ds_no_potholes_hold_boos") % roundi(required_boost_seconds)
+	_notify(L.text("ui.apex_challenges_you"), detail, GameUI.MAGENTA)
 
 
 func update_opponent(actor: Node3D, world: World3D, road_materials: Dictionary = {}) -> void:
@@ -97,14 +117,30 @@ func update_opponent(actor: Node3D, world: World3D, road_materials: Dictionary =
 	_sync_visibility()
 
 
-func show_result(won: bool, secret: bool) -> void:
+func show_result(won: bool, secret: bool, reason: String = "ahead") -> void:
+	_notification_kind = 2 if won else (3 if secret else 4)
+	_result_reason = reason
 	_race_active = false
 	if won:
-		_notify("APEX DEFEATED", "+20,000 points  ·  10s unlimited boost\nApex: \"You earned that one.\"", GameUI.CYAN)
+		_notify(L.text("ui.apex_defeated"), L.text("ui.20_000_points_10s_unlimited_boost_apex_you_earned_that_one"), GameUI.CYAN)
+	elif reason != "ahead":
+		var title := L.text("ui.apex_challenge_failed")
+		var detail := L.text("ui.apex_finish_ahead_boost_missing")
+		match reason:
+			"pothole": detail = L.text("ui.apex_finish_ahead_pothole")
+			"interrupted":
+				title = L.text("ui.apex_race_interrupted")
+				detail = L.text("ui.apex_no_completed_result")
+			"tied":
+				title = L.text("ui.apex_no_winner")
+				detail = L.text("ui.apex_finish_tied")
+		if secret:
+			detail += "\n" + L.text("ui.apex_police_consequence")
+		_notify(title, detail, GameUI.ORANGE)
 	elif secret:
-		_notify("APEX WINS", "Apex: \"Come back when you can keep up.\"\nPOLICE CHASE  ·  Public-road racing and speeding", GameUI.ORANGE)
+		_notify(L.text("ui.apex_wins"), L.text("ui.apex_come_back_when_you_can_keep_up_police_chase_public_road_raci"), GameUI.ORANGE)
 	else:
-		_notify("APEX WINS", "Apex: \"Come back when you can keep up.\"", GameUI.MAGENTA)
+		_notify(L.text("ui.apex_wins"), L.text("ui.apex_come_back_when_you_can_keep_up"), GameUI.MAGENTA)
 
 
 func reset_ui() -> void:
@@ -169,7 +205,7 @@ func _build_opponent_feed() -> void:
 	opponent_panel.anchor_bottom = 1.0
 	opponent_panel.offset_left = 24.0
 	opponent_panel.offset_right = 324.0
-	_label(opponent_panel, "APEX  ·  LIVE", 20, GameUI.CYAN)
+	_label(opponent_panel, L.text("ui.apex_live"), 20, GameUI.CYAN)
 	opponent_image = TextureRect.new()
 	opponent_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	opponent_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -178,14 +214,14 @@ func _build_opponent_feed() -> void:
 	opponent_image.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	opponent_image.texture = opponent_view.get_texture()
 	opponent_panel.get_child(0).add_child(opponent_image)
-	opponent_caption = _label(opponent_panel, "SIDE BY SIDE", 22, GameUI.WHITE)
+	opponent_caption = _label(opponent_panel, L.text("ui.side_by_side"), 22, GameUI.WHITE)
 
 
 func _update_opponent_caption() -> void:
 	if absf(_lead_m) < 0.5:
-		opponent_caption.text = "SIDE BY SIDE"
+		opponent_caption.text = L.text("ui.side_by_side")
 	else:
-		opponent_caption.text = "%dm %s" % [roundi(absf(_lead_m)), "AHEAD" if _lead_m < 0.0 else "BEHIND"]
+		opponent_caption.text = L.text("ui.dm_s") % [roundi(absf(_lead_m)), L.text("ui.ahead") if _lead_m < 0.0 else L.text("ui.behind")]
 	opponent_caption.add_theme_color_override("font_color", GameUI.ORANGE if _lead_m < 0.0 else GameUI.CYAN)
 
 
@@ -281,11 +317,14 @@ func _notify(title: String, detail: String, accent: Color) -> void:
 func _place_notification(opponent_x: float) -> void:
 	# Keep the rival's approach and the player's central lane unobscured.
 	# Result notices retain the side chosen at the start of this encounter.
-	var right_side := opponent_x <= 0.0
+	var right_side := opponent_x <= 0.0 and not _ui.mobile_mode
 	notification_panel.anchor_left = 1.0 if right_side else 0.0
 	notification_panel.anchor_right = notification_panel.anchor_left
 	notification_panel.offset_left = -484.0 if right_side else 24.0
 	notification_panel.offset_right = -24.0 if right_side else 484.0
+	if _ui.mobile_mode:
+		notification_panel.offset_top = 210.0
+		notification_panel.offset_bottom = 404.0
 
 
 func _panel(node_name: String, width: float, top: float, bottom: float, accent: Color) -> PanelContainer:
@@ -313,3 +352,15 @@ func _label(panel: PanelContainer, text: String, font_size: int, color: Color) -
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.get_child(0).add_child(label)
 	return label
+
+
+func _refresh_language() -> void:
+	update_race.callv(_last_race)
+	var remaining := notification_remaining
+	match _notification_kind:
+		1: show_challenge(1.0 if notification_panel.anchor_left == 0.0 else -1.0, _challenge_boost)
+		2: show_result(true, false)
+		3: show_result(false, true, _result_reason)
+		4: show_result(false, false, _result_reason)
+	notification_remaining = remaining
+	_sync_visibility()

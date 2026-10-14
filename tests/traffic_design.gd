@@ -1,6 +1,7 @@
 extends SceneTree
 
 const Obstacle = preload("res://scripts/obstacle.gd")
+const Models = preload("res://scripts/traffic_models.gd")
 var failures: int = 0
 
 
@@ -14,7 +15,6 @@ func _run() -> void:
 	root.add_child(traffic)
 	root.add_child(second)
 	await process_frame
-	var dimensions := [Vector3(2.0, 1.05, 4.4), Vector3(2.4, 1.9, 5.0), Vector3(2.8, 1.4, 4.8)]
 	var names := ["Car", "Van", "Wide"]
 	for kind in [Obstacle.Kind.CAR, Obstacle.Kind.VAN, Obstacle.Kind.WIDE]:
 		traffic.activate(Vector3.ZERO, kind)
@@ -33,8 +33,8 @@ func _run() -> void:
 		var tail := visual.get_node("RearLightBar") as MeshInstance3D
 		var tail_material := tail.material_override as StandardMaterial3D
 		_check(tail_material.emission_enabled and tail_material.emission.r > 0.9, "traffic rear signature stays red")
-		var size: Vector3 = dimensions[kind - 1]
-		_check(traffic._collision.shape.size.is_equal_approx(size), "traffic collision footprint unchanged")
+		var size: Vector3 = Models.dimensions(Models.default_model(kind))
+		_check(traffic._collision.shape.size.is_equal_approx(size), "traffic collision footprint matches model catalog")
 		for part in visual.find_children("*", "MeshInstance3D", true, false):
 			var bounds: AABB = part.mesh.get_aabb()
 			for corner in range(8):
@@ -52,7 +52,7 @@ func _run() -> void:
 	second.free()
 	await process_frame
 	if failures == 0:
-		print("TRAFFIC DESIGN PASS: three faceted silhouettes, tinted cabins, round wheels, red signatures, unchanged collision bounds, cached geometry and stable reuse (%s nodes)" % count)
+		print("TRAFFIC DESIGN PASS: three faceted silhouettes, tinted cabins, round wheels, red signatures, matching collision bounds, cached geometry and stable reuse (%s nodes)" % count)
 	quit(1 if failures else 0)
 
 
